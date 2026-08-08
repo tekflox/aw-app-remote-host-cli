@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "remote-host-cli",
   "name": "Remote Host CLI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Access the remote hosts linked to your aw-workspace account: installs an `aw-remote-hosts` CLI (status/exec/ps against the BYOD host linked via aw-remote-host) and contributes an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
   "tier": "inprocess",
   "publisher": "TekFlox",
@@ -14,7 +14,9 @@
   "runtime": {
     "python": ">=3.11",
     "entrypoint": "remote_host_cli_app.plugin:RemoteHostCliAppPlugin",
-    "pip_requires": ["httpx"]
+    "pip_requires": [
+      "httpx"
+    ]
   },
   "permissions": [
     "commands:install",
