@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "hello",
   "name": "Hello World (App Template)",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "TEMPLATE \u2014 a minimal, fully working decoupled app: installs one trivial CLI (`hello`, prints a configurable greeting) through the gated commands:install facade, contributes a backend sub-app (GET /hello + app-local WS /ws/echo under the app namespace) and a component-mode frontend bundle, and runs standalone too (ADR Decision 4/6). Tests and CI/marketplace release already wired. Rename everything marked TEMPLATE/hello before this becomes a real app \u2014 see README.md.",
   "tier": "inprocess",
   "requires_ui_refresh": true,
