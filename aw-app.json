@@ -1,11 +1,10 @@
 {
   "manifest_version": 1,
-  "id": "hello",
-  "name": "Hello World (App Template)",
-  "version": "0.6.0",
-  "description": "TEMPLATE \u2014 a minimal, fully working decoupled app: installs one trivial CLI (`hello`, prints a configurable greeting) through the gated commands:install facade, contributes a backend sub-app (GET /hello + app-local WS /ws/echo under the app namespace) and a component-mode frontend bundle, and runs standalone too (ADR Decision 4/6). Tests and CI/marketplace release already wired. Rename everything marked TEMPLATE/hello before this becomes a real app \u2014 see README.md.",
+  "id": "remote-host-cli",
+  "name": "Remote Host CLI",
+  "version": "0.1.0",
+  "description": "Access the remote hosts linked to your aw-workspace account: installs an `aw-remote-hosts` CLI (status/exec/ps against the BYOD host linked via aw-remote-host) and contributes an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
   "tier": "inprocess",
-  "requires_ui_refresh": true,
   "publisher": "TekFlox",
   "resource_estimate": {
     "cpu": "low",
@@ -14,56 +13,38 @@
   },
   "runtime": {
     "python": ">=3.11",
-    "entrypoint": "template_app.plugin:HelloAppPlugin",
-    "pip_requires": [],
-    "standalone": {
-      "module": "template_app",
-      "default_port": 9400
-    }
+    "entrypoint": "remote_host_cli_app.plugin:RemoteHostCliAppPlugin",
+    "pip_requires": ["httpx"]
   },
   "permissions": [
     "commands:install",
-    "fs:workspace-data",
-    "routes:register",
-    "ui:code",
-    "ui:slots:core.nav"
+    "net:outbound"
   ],
   "contributes": {
     "system_clis": [
       {
-        "name": "hello",
-        "installer": "scripts/install_hello.sh"
+        "name": "aw-remote-hosts",
+        "installer": "scripts/install_remote_hosts_cli.sh"
       }
     ],
-    "routes": [
-      {
-        "prefix": "/api/apps/hello"
-      }
-    ],
-    "frontend": {
-      "mode": "component",
-      "bundle": "ui/dist/template.js"
-    },
     "skills": [
       {
-        "id": "aw-create-app",
-        "path": "skills/aw-create-app/SKILL.md",
-        "description": "How to author a decoupled aw-workspace app from this template \u2014 manifest, tiers, capabilities, contributes, backend routes (HTTP+WS), frontend code, standalone mode, window widgets, install + marketplace release."
+        "id": "aw-app-remote-hosts-cli",
+        "path": "skills/aw-app-remote-hosts-cli/SKILL.md",
+        "description": "How to check status of, execute commands on, and manage processes on the remote hosts linked to this aw-workspace account, via the `aw-remote-hosts` CLI or this app's MCP server."
       }
-    ]
+    ],
+    "mcp": {
+      "provides": [
+        "remote_host_status",
+        "remote_host_exec_start",
+        "remote_host_exec_status",
+        "remote_host_exec_wait",
+        "remote_host_exec_kill",
+        "remote_host_list_processes"
+      ]
+    }
   },
-  "config_schema": {
-    "type": "object",
-    "properties": {
-      "greeting": {
-        "type": "string",
-        "default": "Hello",
-        "description": "Word the installed `hello` command prints before the target name, e.g. \"Hello, world!\"."
-      }
-    },
-    "required": []
-  },
-  "config_visible": false,
   "dependencies": {},
   "migrations": {}
 }
