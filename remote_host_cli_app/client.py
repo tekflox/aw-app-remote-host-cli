@@ -13,30 +13,38 @@ this workspace's own ``slug`` before honoring it — so this client can only
 ever reach hosts linked to THIS account, never another workspace's.
 
 Reads ``os.environ`` first; when a value is missing there, falls back to
-``<AW_WORKSPACE_HOME>/.env`` (default ``~/.aw-workspace/.env`` —
-``AW_WORKSPACE_ENV_FILE`` overrides the path) — the same fallback
-``docs/app-workspace-api-auth.md``'s "external process" pattern documents
-for ``AW_WORKSPACE_API_KEY`` (see ``aw-app-whiteboard``'s ``mcp_server/``
-for the reference implementation this mirrors). ``RemoteHostCliAppPlugin``
-publishes all three vars there on every activate (see ``plugin.py``), so
-ANY process that can read this workspace's shared filesystem — not just
-the aw-workspace process itself, or a container the Runner specially
-mounts creds into — gets a working client for free, no per-agent wiring.
+``<AW_WORKSPACE_HOME>/.env`` (``AW_WORKSPACE_ENV_FILE`` overrides the exact
+path; default resolves against ``AW_WORKSPACE_CONTAINER_DIR``, NOT
+``Path.home()`` — a caller reaching this file cross-container, e.g. an
+agent's own spawned container, shares the workspace's ``/opt/aw-workspace``
+filesystem tree but has its own unrelated ``$HOME``, so ``~/.aw-workspace``
+would resolve to nothing there even though the real file is sitting right
+there on the shared mount) — the same fallback ``docs/app-workspace-api-
+auth.md``'s "external process" pattern documents for
+``AW_WORKSPACE_API_KEY`` (see ``aw-app-whiteboard``'s ``mcp_server/`` for
+the reference implementation this adapts, with that one difference).
+``RemoteHostCliAppPlugin`` publishes all three vars there on every activate
+(see ``plugin.py``), so ANY process that can read this workspace's shared
+filesystem — not just the aw-workspace process itself, or a container the
+Runner specially mounts creds into — gets a working client for free, no
+per-agent wiring.
 """
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import httpx
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:9025"
+DEFAULT_WORKSPACE_CONTAINER_DIR = "/opt/aw-workspace"
 ENV_VARS = ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN")
 
 
 def _default_env_file() -> str:
-    home = os.environ.get("AW_WORKSPACE_HOME") or str(Path.home() / ".aw-workspace")
+    home = os.environ.get("AW_WORKSPACE_HOME") or os.path.join(
+        os.environ.get("AW_WORKSPACE_CONTAINER_DIR", DEFAULT_WORKSPACE_CONTAINER_DIR), ".aw-workspace"
+    )
     return os.path.join(home, ".env")
 
 
