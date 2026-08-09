@@ -12,20 +12,52 @@ app-installs registry). aw-backend accepts it via ``require_workspace_actor``
 this workspace's own ``slug`` before honoring it — so this client can only
 ever reach hosts linked to THIS account, never another workspace's.
 
-Read fresh from ``os.environ`` on every call (not cached at import time) —
-these are plain container-level env vars (not the regenerable workspace API
-key), so there's no rotation-propagation concern, but reading fresh keeps
-this consistent with every other app-workspace-auth client in this codebase
-and costs nothing.
+Reads ``os.environ`` first; when a value is missing there, falls back to
+``<AW_WORKSPACE_HOME>/.env`` (default ``~/.aw-workspace/.env`` —
+``AW_WORKSPACE_ENV_FILE`` overrides the path) — the same fallback
+``docs/app-workspace-api-auth.md``'s "external process" pattern documents
+for ``AW_WORKSPACE_API_KEY`` (see ``aw-app-whiteboard``'s ``mcp_server/``
+for the reference implementation this mirrors). ``RemoteHostCliAppPlugin``
+publishes all three vars there on every activate (see ``plugin.py``), so
+ANY process that can read this workspace's shared filesystem — not just
+the aw-workspace process itself, or a container the Runner specially
+mounts creds into — gets a working client for free, no per-agent wiring.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import httpx
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:9025"
+ENV_VARS = ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN")
+
+
+def _default_env_file() -> str:
+    home = os.environ.get("AW_WORKSPACE_HOME") or str(Path.home() / ".aw-workspace")
+    return os.path.join(home, ".env")
+
+
+def _read_env_file_value(key: str) -> str | None:
+    path = os.environ.get("AW_WORKSPACE_ENV_FILE") or _default_env_file()
+    prefix = f"{key}="
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(prefix):
+                    return line[len(prefix):].strip() or None
+    except FileNotFoundError:
+        return None
+    return None
+
+
+def _resolve(explicit: str | None, key: str, default: str = "") -> str:
+    if explicit:
+        return explicit
+    return os.environ.get(key) or _read_env_file_value(key) or default
 
 
 class NotConfigured(RuntimeError):
@@ -42,9 +74,9 @@ class RemoteHostError(RuntimeError):
 class RemoteHostClient:
     def __init__(self, backend_url: str | None = None, workspace: str | None = None,
                  token: str | None = None, timeout: float = 30.0) -> None:
-        self.backend_url = (backend_url or os.environ.get("AW_BACKEND_URL", DEFAULT_BACKEND_URL)).rstrip("/")
-        self.workspace = workspace or os.environ.get("AW_WORKSPACE", "")
-        self.token = token or os.environ.get("AW_WORKSPACE_HOST_TOKEN", "")
+        self.backend_url = _resolve(backend_url, "AW_BACKEND_URL", DEFAULT_BACKEND_URL).rstrip("/")
+        self.workspace = _resolve(workspace, "AW_WORKSPACE")
+        self.token = _resolve(token, "AW_WORKSPACE_HOST_TOKEN")
         self.timeout = timeout
 
     @property

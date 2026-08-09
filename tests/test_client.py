@@ -4,7 +4,9 @@ network. Run: python -m pytest tests/test_client.py -q
 """
 from __future__ import annotations
 
+import os as _os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -22,10 +24,17 @@ def _configured_client() -> RemoteHostClient:
 
 class ConfigurationTest(unittest.TestCase):
     def test_not_configured_raises_before_any_network_call(self):
-        client = RemoteHostClient(backend_url="", workspace="", token="")
-        self.assertFalse(client.configured)
-        with self.assertRaises(NotConfigured):
-            client.status()
+        """Explicit env-var pop + a nonexistent AW_WORKSPACE_ENV_FILE guarantee
+        this stays "not configured" regardless of what's ambient on the
+        machine running the test (e.g. a real aw-workspace host with a real
+        published .env)."""
+        with patch.dict("os.environ", {"AW_WORKSPACE_ENV_FILE": "/nonexistent/.env"}, clear=False):
+            for key in ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN"):
+                _os.environ.pop(key, None)
+            client = RemoteHostClient(backend_url="", workspace="", token="")
+            self.assertFalse(client.configured)
+            with self.assertRaises(NotConfigured):
+                client.status()
 
     def test_reads_from_env_when_no_explicit_args(self):
         with patch.dict(
@@ -40,6 +49,40 @@ class ConfigurationTest(unittest.TestCase):
             client = RemoteHostClient()
             self.assertTrue(client.configured)
             self.assertEqual(client.backend_url, "http://backend.example")
+
+    def test_falls_back_to_workspace_env_file_when_os_environ_unset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = f"{tmp}/.env"
+            with open(env_path, "w") as f:
+                f.write("AW_WORKSPACE_API_KEY=unrelated-should-be-ignored\n")
+                f.write("AW_BACKEND_URL=https://api.aw.tekflox.com\n")
+                f.write("AW_WORKSPACE=aw\n")
+                f.write("AW_WORKSPACE_HOST_TOKEN=awlk_from_file\n")
+
+            with patch.dict("os.environ", {"AW_WORKSPACE_ENV_FILE": env_path}, clear=False):
+                for key in ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN"):
+                    _os.environ.pop(key, None)
+                client = RemoteHostClient()
+
+            self.assertTrue(client.configured)
+            self.assertEqual(client.backend_url, "https://api.aw.tekflox.com")
+            self.assertEqual(client.workspace, "aw")
+            self.assertEqual(client.token, "awlk_from_file")
+
+    def test_explicit_os_environ_wins_over_env_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = f"{tmp}/.env"
+            with open(env_path, "w") as f:
+                f.write("AW_WORKSPACE_HOST_TOKEN=awlk_from_file_should_lose\n")
+
+            with patch.dict(
+                "os.environ",
+                {"AW_WORKSPACE_ENV_FILE": env_path, "AW_WORKSPACE_HOST_TOKEN": "awlk_from_environ_wins"},
+                clear=False,
+            ):
+                client = RemoteHostClient()
+
+            self.assertEqual(client.token, "awlk_from_environ_wins")
 
 
 class RequestShapeTest(unittest.TestCase):
