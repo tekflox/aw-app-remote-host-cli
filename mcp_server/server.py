@@ -22,6 +22,12 @@ Inside a real aw-workspace container all three env vars are already present
 (same ones ``src/apps/registry_client.py`` reads) — an agent CLI's
 ``.mcp.json`` just needs to spawn this with that environment inherited, no
 extra config.
+
+Every tool handler below calls THROUGH ``remote_host_cli_app.cli.dispatch()``
+— the exact same function the installed ``aw-remote-hosts`` CLI's own
+``main()`` calls — rather than talking to ``RemoteHostClient`` a second,
+separate way. One implementation of "what does each operation do"; this
+file is a thin JSON-RPC/MCP protocol adapter over the CLI, nothing more.
 """
 
 from __future__ import annotations
@@ -32,7 +38,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from remote_host_cli_app.client import NotConfigured, RemoteHostClient, RemoteHostError  # noqa: E402
+from remote_host_cli_app.cli import dispatch  # noqa: E402
+from remote_host_cli_app.client import NotConfigured, RemoteHostError  # noqa: E402
 
 _TOOLS = [
     {
@@ -93,12 +100,30 @@ _TOOLS = [
 ]
 
 
-def _call(fn, *args, **kwargs) -> dict:
+_TOOL_TO_CMD = {
+    "remote_host_status": "status",
+    "remote_host_exec_start": "exec",
+    "remote_host_exec_status": "exec-status",
+    "remote_host_exec_wait": "wait",
+    "remote_host_exec_kill": "kill",
+    "remote_host_list_processes": "ps",
+}
+
+
+def _call(name: str, args: dict) -> dict:
     try:
-        return {"ok": True, "data": fn(*args, **kwargs)}
+        data = dispatch(
+            _TOOL_TO_CMD[name],
+            command=args.get("command"),
+            job_id=args.get("job_id"),
+            timeout_s=args.get("timeout_s"),
+        )
+        return {"ok": True, "data": data}
     except NotConfigured as e:
         return {"ok": False, "error": str(e)}
     except RemoteHostError as e:
+        return {"ok": False, "error": str(e)}
+    except ValueError as e:
         return {"ok": False, "error": str(e)}
 
 
@@ -123,22 +148,11 @@ def handle_request(request: dict) -> dict | None:
     if method == "tools/call":
         name = request.get("params", {}).get("name", "")
         args = request.get("params", {}).get("arguments", {}) or {}
-        client = RemoteHostClient()
 
-        if name == "remote_host_status":
-            r = _call(client.status)
-        elif name == "remote_host_exec_start":
-            r = _call(client.exec_start, args["command"], timeout_s=args.get("timeout_s"))
-        elif name == "remote_host_exec_status":
-            r = _call(client.exec_status, args["job_id"])
-        elif name == "remote_host_exec_wait":
-            r = _call(client.exec_wait, args["job_id"], timeout_s=args.get("timeout_s"))
-        elif name == "remote_host_exec_kill":
-            r = _call(client.exec_kill, args["job_id"])
-        elif name == "remote_host_list_processes":
-            r = _call(client.list_processes)
-        else:
+        if name not in _TOOL_TO_CMD:
             return _err(req_id, f"Unknown tool: {name}")
+
+        r = _call(name, args)
 
         if r["ok"]:
             return _ok(req_id, json.dumps(r["data"], indent=2, ensure_ascii=False))
