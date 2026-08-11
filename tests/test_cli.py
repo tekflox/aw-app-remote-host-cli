@@ -35,7 +35,16 @@ class CliDispatchTest(unittest.TestCase):
         code = cli.main(["exec", "echo hi", "--timeout", "5"])
 
         self.assertEqual(code, 0)
-        mock_client_cls.return_value.exec_start.assert_called_once_with("echo hi", timeout_s=5.0)
+        mock_client_cls.return_value.exec_start.assert_called_once_with("echo hi", timeout_s=5.0, host_id=None)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_exec_passes_host_id_when_given(self, mock_client_cls):
+        mock_client_cls.return_value.exec_start.return_value = {"job_id": "abc123"}
+
+        code = cli.main(["exec", "echo hi", "--host", "rh_other"])
+
+        self.assertEqual(code, 0)
+        mock_client_cls.return_value.exec_start.assert_called_once_with("echo hi", timeout_s=None, host_id="rh_other")
 
     @patch("remote_host_cli_app.cli.RemoteHostClient")
     def test_wait_passes_job_id_and_timeout(self, mock_client_cls):
@@ -44,20 +53,35 @@ class CliDispatchTest(unittest.TestCase):
         code = cli.main(["wait", "abc123", "--timeout", "10"])
 
         self.assertEqual(code, 0)
-        mock_client_cls.return_value.exec_wait.assert_called_once_with("abc123", timeout_s=10.0)
+        mock_client_cls.return_value.exec_wait.assert_called_once_with("abc123", timeout_s=10.0, host_id=None)
 
     @patch("remote_host_cli_app.cli.RemoteHostClient")
     def test_kill_and_ps_and_exec_status(self, mock_client_cls):
         mock_client_cls.return_value.exec_kill.return_value = {"killed": True}
         self.assertEqual(cli.main(["kill", "abc123"]), 0)
-        mock_client_cls.return_value.exec_kill.assert_called_once_with("abc123")
+        mock_client_cls.return_value.exec_kill.assert_called_once_with("abc123", host_id=None)
 
         mock_client_cls.return_value.list_processes.return_value = {"count": 0, "processes": []}
         self.assertEqual(cli.main(["ps"]), 0)
+        mock_client_cls.return_value.list_processes.assert_called_once_with(host_id=None)
 
         mock_client_cls.return_value.exec_status.return_value = {"status": "running"}
         self.assertEqual(cli.main(["exec-status", "abc123"]), 0)
-        mock_client_cls.return_value.exec_status.assert_called_once_with("abc123")
+        mock_client_cls.return_value.exec_status.assert_called_once_with("abc123", host_id=None)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_kill_and_ps_and_exec_status_pass_host_id_when_given(self, mock_client_cls):
+        mock_client_cls.return_value.exec_kill.return_value = {"killed": True}
+        self.assertEqual(cli.main(["kill", "abc123", "--host", "rh_other"]), 0)
+        mock_client_cls.return_value.exec_kill.assert_called_once_with("abc123", host_id="rh_other")
+
+        mock_client_cls.return_value.list_processes.return_value = {"count": 0, "processes": []}
+        self.assertEqual(cli.main(["ps", "--host", "rh_other"]), 0)
+        mock_client_cls.return_value.list_processes.assert_called_once_with(host_id="rh_other")
+
+        mock_client_cls.return_value.exec_status.return_value = {"status": "running"}
+        self.assertEqual(cli.main(["exec-status", "abc123", "--host", "rh_other"]), 0)
+        mock_client_cls.return_value.exec_status.assert_called_once_with("abc123", host_id="rh_other")
 
     @patch("remote_host_cli_app.cli.RemoteHostClient")
     def test_hosts_lists_account_wide_hosts(self, mock_client_cls):

@@ -163,6 +163,43 @@ class RequestShapeTest(unittest.TestCase):
         self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/exec/abc123/kill"))
 
     @patch("remote_host_cli_app.client.httpx.request")
+    def test_exec_start_with_host_id_targets_the_plural_sibling_path(self, mock_request):
+        mock_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"job_id": "abc123", "started": True}
+        )
+        client = _configured_client()
+
+        client.exec_start("echo hi", host_id="rh_other")
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(
+            args,
+            ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/exec"),
+        )
+        self.assertEqual(kwargs["json"], {"command": "echo hi"})
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_exec_status_wait_kill_ps_with_host_id_target_the_plural_sibling_path(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {})
+        client = _configured_client()
+
+        client.exec_status("job1", host_id="rh_other")
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("GET", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/exec/job1"))
+
+        client.exec_wait("job1", host_id="rh_other")
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/exec/job1/wait"))
+
+        client.exec_kill("job1", host_id="rh_other")
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/exec/job1/kill"))
+
+        client.list_processes(host_id="rh_other")
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("GET", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/processes"))
+
+    @patch("remote_host_cli_app.client.httpx.request")
     def test_list_account_hosts_hits_the_plural_sibling_path(self, mock_request):
         mock_request.return_value = MagicMock(
             status_code=200,

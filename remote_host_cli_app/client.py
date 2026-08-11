@@ -99,16 +99,24 @@ class RemoteHostClient:
                 "that has completed the aw-remote-host /link handshake."
             )
 
-    def _base(self) -> str:
+    def _base(self, host_id: str | None = None) -> str:
+        """``.../remote-host`` targets THIS workspace's own linked host (the
+        original, single-host shape). When ``host_id`` is given, targets
+        ANY host in the caller's account instead — the ``.../remote-hosts/
+        {host_id}/...`` sibling routes ``list_account_hosts`` discovers ids
+        from (aw-backend resolves account-ownership server-side; a host_id
+        outside the caller's account 404s there, never a client-side check)."""
+        if host_id:
+            return f"{self.backend_url}/api/workspaces/{self.workspace}/remote-hosts/{host_id}"
         return f"{self.backend_url}/api/workspaces/{self.workspace}/remote-host"
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"}
 
     def _request(self, method: str, path: str, *, json_body: dict | None = None,
-                 timeout: float | None = None) -> dict:
+                 timeout: float | None = None, host_id: str | None = None) -> dict:
         self._require_configured()
-        url = f"{self._base()}{path}"
+        url = f"{self._base(host_id)}{path}"
         try:
             resp = httpx.request(
                 method, url, json=json_body, headers=self._headers(),
@@ -130,18 +138,19 @@ class RemoteHostClient:
         """``GET .../remote-host`` — id, hostname, last_seen_at, connected."""
         return self._request("GET", "")
 
-    def exec_start(self, command: str, timeout_s: float | None = None) -> dict:
-        """``POST .../remote-host/exec`` — returns job_id/pid/started."""
+    def exec_start(self, command: str, timeout_s: float | None = None, host_id: str | None = None) -> dict:
+        """``POST .../remote-host/exec`` (or ``.../remote-hosts/{host_id}/exec``
+        when ``host_id`` is given) — returns job_id/pid/started."""
         body: dict = {"command": command}
         if timeout_s is not None:
             body["timeout_s"] = timeout_s
-        return self._request("POST", "/exec", json_body=body)
+        return self._request("POST", "/exec", json_body=body, host_id=host_id)
 
-    def exec_status(self, job_id: str) -> dict:
+    def exec_status(self, job_id: str, host_id: str | None = None) -> dict:
         """``GET .../remote-host/exec/{job_id}``."""
-        return self._request("GET", f"/exec/{job_id}")
+        return self._request("GET", f"/exec/{job_id}", host_id=host_id)
 
-    def exec_wait(self, job_id: str, timeout_s: float | None = None) -> dict:
+    def exec_wait(self, job_id: str, timeout_s: float | None = None, host_id: str | None = None) -> dict:
         """``POST .../remote-host/exec/{job_id}/wait`` — blocks host-side up
         to timeout_s; the HTTP call's own timeout covers that plus headroom,
         mirroring host_link.py's exec_wait relay budget."""
@@ -149,15 +158,16 @@ class RemoteHostClient:
         if timeout_s is not None:
             body["timeout_s"] = timeout_s
         wait_budget = float(timeout_s) if timeout_s else 30.0
-        return self._request("POST", f"/exec/{job_id}/wait", json_body=body, timeout=wait_budget + 15.0)
+        return self._request("POST", f"/exec/{job_id}/wait", json_body=body,
+                              timeout=wait_budget + 15.0, host_id=host_id)
 
-    def exec_kill(self, job_id: str) -> dict:
+    def exec_kill(self, job_id: str, host_id: str | None = None) -> dict:
         """``POST .../remote-host/exec/{job_id}/kill``."""
-        return self._request("POST", f"/exec/{job_id}/kill", json_body={})
+        return self._request("POST", f"/exec/{job_id}/kill", json_body={}, host_id=host_id)
 
-    def list_processes(self) -> dict:
+    def list_processes(self, host_id: str | None = None) -> dict:
         """``GET .../remote-host/processes`` — count + processes[]."""
-        return self._request("GET", "/processes")
+        return self._request("GET", "/processes", host_id=host_id)
 
     def list_account_hosts(self) -> dict:
         """``GET /api/workspaces/{slug}/remote-hosts`` (plural — a SIBLING

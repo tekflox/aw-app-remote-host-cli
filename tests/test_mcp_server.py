@@ -39,7 +39,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         })
 
         mock_dispatch.assert_called_once_with(
-            "status", command=None, job_id=None, timeout_s=None
+            "status", command=None, job_id=None, timeout_s=None, host_id=None
         )
         self.assertFalse(resp["result"]["isError"])
         self.assertEqual(json.loads(resp["result"]["content"][0]["text"]),
@@ -56,7 +56,21 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         })
 
         mock_dispatch.assert_called_once_with(
-            "exec", command="echo hi", job_id=None, timeout_s=5
+            "exec", command="echo hi", job_id=None, timeout_s=5, host_id=None
+        )
+
+    @patch("mcp_server.server.dispatch")
+    def test_exec_start_passes_host_id_when_given(self, mock_dispatch):
+        mock_dispatch.return_value = {"job_id": "abc123"}
+
+        server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_exec_start",
+                       "arguments": {"command": "echo hi", "host_id": "rh_other"}},
+        })
+
+        mock_dispatch.assert_called_once_with(
+            "exec", command="echo hi", job_id=None, timeout_s=None, host_id="rh_other"
         )
 
     @patch("mcp_server.server.dispatch")
@@ -69,7 +83,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         })
 
         mock_dispatch.assert_called_once_with(
-            "exec-status", command=None, job_id="abc123", timeout_s=None
+            "exec-status", command=None, job_id="abc123", timeout_s=None, host_id=None
         )
 
     @patch("mcp_server.server.dispatch")
@@ -88,7 +102,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         })
 
         mock_dispatch.assert_called_once_with(
-            "hosts", command=None, job_id=None, timeout_s=None
+            "hosts", command=None, job_id=None, timeout_s=None, host_id=None
         )
         self.assertFalse(resp["result"]["isError"])
         self.assertEqual(json.loads(resp["result"]["content"][0]["text"])["count"], 2)

@@ -52,12 +52,22 @@ _TOOLS = [
     },
     {
         "name": "remote_host_exec_start",
-        "description": "Start a shell command on the linked remote host. Returns a job_id.",
+        "description": (
+            "Start a shell command on the linked remote host, or on ANY host "
+            "id from remote_host_list_hosts belonging to this same account. "
+            "Returns a job_id."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "command": {"type": "string", "description": "Shell command to run."},
                 "timeout_s": {"type": "number", "description": "Optional host-side timeout in seconds."},
+                "host_id": {
+                    "type": "string",
+                    "description": ("Optional — id of a specific host (from remote_host_list_hosts) "
+                                     "to target instead of this workspace's own linked host. Must "
+                                     "belong to this same account."),
+                },
             },
             "required": ["command"],
         },
@@ -67,7 +77,10 @@ _TOOLS = [
         "description": "Check the status of a job started with remote_host_exec_start.",
         "inputSchema": {
             "type": "object",
-            "properties": {"job_id": {"type": "string"}},
+            "properties": {
+                "job_id": {"type": "string"},
+                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
+            },
             "required": ["job_id"],
         },
     },
@@ -79,6 +92,7 @@ _TOOLS = [
             "properties": {
                 "job_id": {"type": "string"},
                 "timeout_s": {"type": "number", "description": "Max seconds to wait."},
+                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
             },
             "required": ["job_id"],
         },
@@ -88,14 +102,22 @@ _TOOLS = [
         "description": "Kill a running job on the linked remote host.",
         "inputSchema": {
             "type": "object",
-            "properties": {"job_id": {"type": "string"}},
+            "properties": {
+                "job_id": {"type": "string"},
+                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
+            },
             "required": ["job_id"],
         },
     },
     {
         "name": "remote_host_list_processes",
-        "description": "List processes started via exec on the linked remote host.",
-        "inputSchema": {"type": "object", "properties": {}},
+        "description": "List processes started via exec on the linked remote host, or on a specific host_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host_id": {"type": "string", "description": "Optional — target a specific host id instead of this workspace's own."},
+            },
+        },
     },
     {
         "name": "remote_host_list_hosts",
@@ -127,6 +149,7 @@ def _call(name: str, args: dict) -> dict:
             command=args.get("command"),
             job_id=args.get("job_id"),
             timeout_s=args.get("timeout_s"),
+            host_id=args.get("host_id"),
         )
         return {"ok": True, "data": data}
     except NotConfigured as e:
