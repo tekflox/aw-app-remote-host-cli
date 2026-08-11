@@ -162,6 +162,25 @@ class RequestShapeTest(unittest.TestCase):
         args, _ = mock_request.call_args
         self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/exec/abc123/kill"))
 
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_list_account_hosts_hits_the_plural_sibling_path(self, mock_request):
+        mock_request.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"count": 2, "hosts": [
+                {"id": "a", "workspace_slug": "acme", "connected": True},
+                {"id": "b", "workspace_slug": "acme-staging", "connected": False},
+            ]},
+        )
+        client = _configured_client()
+
+        result = client.list_account_hosts()
+
+        self.assertEqual(result["count"], 2)
+        args, kwargs = mock_request.call_args
+        # Plural "remote-hosts", NOT nested under the singular "/remote-host/" path.
+        self.assertEqual(args, ("GET", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts"))
+        self.assertEqual(kwargs["headers"], {"Authorization": "Bearer awlk_test_secret"})
+
 
 if __name__ == "__main__":
     unittest.main()

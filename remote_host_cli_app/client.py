@@ -158,3 +158,23 @@ class RemoteHostClient:
     def list_processes(self) -> dict:
         """``GET .../remote-host/processes`` — count + processes[]."""
         return self._request("GET", "/processes")
+
+    def list_account_hosts(self) -> dict:
+        """``GET /api/workspaces/{slug}/remote-hosts`` (plural — a SIBLING
+        path, not nested under ``/remote-host/``) — every non-revoked host
+        across every workspace this account owns, not just this one. Returns
+        ``{count, hosts: [{id, workspace_slug, hostname, os, arch,
+        last_seen_at, connected}, ...]}``."""
+        self._require_configured()
+        url = f"{self.backend_url}/api/workspaces/{self.workspace}/remote-hosts"
+        try:
+            resp = httpx.request("GET", url, headers=self._headers(), timeout=self.timeout)
+        except httpx.HTTPError as e:
+            raise RemoteHostError(str(e)) from e
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        if resp.status_code >= 400:
+            raise RemoteHostError(data.get("error") or data.get("detail") or f"HTTP {resp.status_code}")
+        return data

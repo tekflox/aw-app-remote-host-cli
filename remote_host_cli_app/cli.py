@@ -22,7 +22,7 @@ import sys
 
 from .client import NotConfigured, RemoteHostClient, RemoteHostError
 
-COMMANDS = ("status", "exec", "exec-status", "wait", "kill", "ps")
+COMMANDS = ("status", "exec", "exec-status", "wait", "kill", "ps", "hosts")
 
 
 def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str | None = None,
@@ -53,6 +53,8 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
         return client.exec_kill(job_id)
     if cmd == "ps":
         return client.list_processes()
+    if cmd == "hosts":
+        return client.list_account_hosts()
     raise ValueError(f"unknown command: {cmd!r} (expected one of {COMMANDS})")
 
 
@@ -86,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     p_kill.add_argument("job_id")
 
     sub.add_parser("ps", help="List processes started via exec on the linked host.")
+
+    sub.add_parser("hosts", help="List every remote host linked across this account's workspaces.")
 
     args = parser.parse_args(argv)
 

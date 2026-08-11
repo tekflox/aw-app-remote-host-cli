@@ -97,6 +97,15 @@ _TOOLS = [
         "description": "List processes started via exec on the linked remote host.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "remote_host_list_hosts",
+        "description": (
+            "List every remote host linked across this account's workspaces "
+            "(not just the current one) — id, workspace_slug, hostname, os, "
+            "arch, last_seen_at, and online/offline (connected) for each."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -107,6 +116,7 @@ _TOOL_TO_CMD = {
     "remote_host_exec_wait": "wait",
     "remote_host_exec_kill": "kill",
     "remote_host_list_processes": "ps",
+    "remote_host_list_hosts": "hosts",
 }
 
 

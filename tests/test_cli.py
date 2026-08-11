@@ -60,6 +60,21 @@ class CliDispatchTest(unittest.TestCase):
         mock_client_cls.return_value.exec_status.assert_called_once_with("abc123")
 
     @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_hosts_lists_account_wide_hosts(self, mock_client_cls):
+        mock_client_cls.return_value.list_account_hosts.return_value = {
+            "count": 2,
+            "hosts": [
+                {"id": "a", "workspace_slug": "acme", "connected": True},
+                {"id": "b", "workspace_slug": "acme-staging", "connected": False},
+            ],
+        }
+
+        code = cli.main(["hosts"])
+
+        self.assertEqual(code, 0)
+        mock_client_cls.return_value.list_account_hosts.assert_called_once_with()
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
     def test_not_configured_exits_2(self, mock_client_cls):
         mock_client_cls.return_value.status.side_effect = NotConfigured("missing env")
 

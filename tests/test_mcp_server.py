@@ -21,10 +21,11 @@ from remote_host_cli_app.client import NotConfigured, RemoteHostError  # noqa: E
 
 
 class ToolsListTest(unittest.TestCase):
-    def test_lists_all_six_tools(self):
+    def test_lists_all_seven_tools(self):
         resp = server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         names = {t["name"] for t in resp["result"]["tools"]}
         self.assertEqual(names, set(server._TOOL_TO_CMD))
+        self.assertIn("remote_host_list_hosts", names)
 
 
 class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
@@ -70,6 +71,27 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         mock_dispatch.assert_called_once_with(
             "exec-status", command=None, job_id="abc123", timeout_s=None
         )
+
+    @patch("mcp_server.server.dispatch")
+    def test_list_hosts_calls_dispatch_with_hosts_command(self, mock_dispatch):
+        mock_dispatch.return_value = {
+            "count": 2,
+            "hosts": [
+                {"id": "a", "workspace_slug": "acme", "connected": True},
+                {"id": "b", "workspace_slug": "acme-staging", "connected": False},
+            ],
+        }
+
+        resp = server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_list_hosts", "arguments": {}},
+        })
+
+        mock_dispatch.assert_called_once_with(
+            "hosts", command=None, job_id=None, timeout_s=None
+        )
+        self.assertFalse(resp["result"]["isError"])
+        self.assertEqual(json.loads(resp["result"]["content"][0]["text"])["count"], 2)
 
     @patch("mcp_server.server.dispatch")
     def test_not_configured_surfaces_as_mcp_error_content(self, mock_dispatch):
