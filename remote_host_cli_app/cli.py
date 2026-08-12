@@ -27,7 +27,12 @@ import sys
 
 from .client import NotConfigured, RemoteHostClient, RemoteHostError
 
-COMMANDS = ("status", "exec", "exec-status", "wait", "kill", "ps", "hosts")
+COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts")
+
+# Conventional "the thing you waited for never finished" exit code (timeout(1),
+# and what a shell reports for a SIGTERM'd child). Distinct from any real remote
+# exit code we'd otherwise forward, and from this CLI's own 1/2.
+EXIT_TIMEOUT = 124
 
 
 def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str | None = None,
@@ -51,6 +56,23 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
         if not command:
             raise ValueError("exec requires 'command'")
         return client.exec_start(command, timeout_s=timeout_s, host_id=host_id)
+    if cmd == "exec-wait":
+        if not command:
+            raise ValueError("exec-wait requires 'command'")
+        started = client.exec_start(command, timeout_s=timeout_s, host_id=host_id)
+        job_id = started.get("job_id")
+        if not job_id:
+            # Nothing to wait on — hand back whatever exec_start said rather
+            # than inventing a result. Shouldn't happen; a host that returns
+            # no job_id has already failed in a way only it can explain.
+            return started
+        result = client.exec_wait(job_id, timeout_s=timeout_s, host_id=host_id)
+        # exec_wait's own payload already carries job_id in practice, but a
+        # timed-out wait is only recoverable if the caller definitely has it —
+        # that's the whole point of this command not losing the two-step
+        # escape hatch. Set it unconditionally, from the id we started.
+        result.setdefault("job_id", job_id)
+        return result
     if cmd == "exec-status":
         if not job_id:
             raise ValueError("exec-status requires 'job_id'")
@@ -74,6 +96,35 @@ def _print(data: dict) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def _render_run(result: dict, prog: str) -> int:
+    """Render an ``exec-wait`` result the way a local command would behave:
+    stdout to stdout, stderr to stderr, exit with the REMOTE exit code.
+
+    That forwarding is the whole point of this subcommand — `... exec-wait
+    "test -f /x"` has to be usable in an `if`, which a JSON envelope on stdout
+    and a hardcoded 0 can never be. It does mean a remote exit code of 1 or 2
+    is indistinguishable from this CLI's own error codes; that's the same
+    trade-off ssh makes, and the alternative (never forwarding) is worse.
+    """
+    sys.stdout.write(result.get("stdout") or "")
+    sys.stderr.write(result.get("stderr") or "")
+    sys.stdout.flush()
+
+    if result.get("status") != "exited":
+        # Timed out or still running: there is no exit code to forward, and
+        # silently returning 0 would report success for a command that may
+        # still be running. Hand back the job_id so the caller can resume with
+        # `wait`/`exec-status` rather than losing the job entirely.
+        job_id = result.get("job_id") or "?"
+        print(f"{prog}: command did not finish (status: "
+              f"{result.get('status') or 'unknown'}); resume with: "
+              f"{prog} wait {job_id}", file=sys.stderr)
+        return EXIT_TIMEOUT
+
+    code = result.get("exit_code")
+    return code if isinstance(code, int) else 0
+
+
 def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hosts") -> int:
     """``prog`` is what usage/error lines call this command. It is a parameter
     rather than a constant because the same parser is reached under more than
@@ -91,11 +142,26 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
 
     sub.add_parser("status", help="Show the linked host's hostname/connected state.")
 
-    p_exec = sub.add_parser("exec", help="Start a command on the linked host.")
+    p_exec = sub.add_parser("exec", help="Start a command on the linked host (returns a job_id, does NOT block).")
     p_exec.add_argument("command", help="Shell command to run on the remote host.")
     p_exec.add_argument("--timeout", type=float, default=None, dest="timeout_s",
                          help="Optional host-side timeout in seconds.")
     p_exec.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_run = sub.add_parser(
+        "exec-wait", aliases=["run"],
+        help="Run a command and block for its output — exec + wait in one call.",
+        description="Start a command on the remote host and block until it finishes, "
+                    "then print its stdout/stderr and exit with ITS exit code — so a "
+                    "remote command behaves like a local one. Use 'exec' + 'wait' "
+                    "instead when you want the job_id back immediately.",
+    )
+    p_run.add_argument("command", help="Shell command to run on the remote host.")
+    p_run.add_argument("--timeout", type=float, default=None, dest="timeout_s",
+                        help="Max seconds to wait (default: host-side default).")
+    p_run.add_argument("--host", default=None, dest="host_id", help=host_help)
+    p_run.add_argument("--json", action="store_true", dest="as_json",
+                        help="Print the full result envelope as JSON instead of raw output.")
 
     p_status = sub.add_parser("exec-status", help="Check a job's status.")
     p_status.add_argument("job_id")
@@ -118,14 +184,20 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
 
     args = parser.parse_args(argv)
 
+    # argparse reports the alias the user typed, but dispatch() only knows the
+    # canonical names in COMMANDS.
+    cmd = "exec-wait" if args.cmd == "run" else args.cmd
+
     try:
         result = dispatch(
-            args.cmd,
+            cmd,
             command=getattr(args, "command", None),
             job_id=getattr(args, "job_id", None),
             timeout_s=getattr(args, "timeout_s", None),
             host_id=getattr(args, "host_id", None),
         )
+        if cmd == "exec-wait" and not getattr(args, "as_json", False):
+            return _render_run(result, prog)
         _print(result)
     except NotConfigured as e:
         print(f"{prog}: {e}", file=sys.stderr)

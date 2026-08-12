@@ -13,12 +13,20 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   ```
   aw-workspace-cli remote-hosts status
   aw-workspace-cli remote-hosts hosts
+  aw-workspace-cli remote-hosts exec-wait "ps aux" [--timeout 30] [--host <id>]
   aw-workspace-cli remote-hosts exec "echo hi" [--timeout 30] [--host <id>]
   aw-workspace-cli remote-hosts exec-status <job_id>
   aw-workspace-cli remote-hosts wait <job_id> [--timeout 30]
   aw-workspace-cli remote-hosts kill <job_id>
   aw-workspace-cli remote-hosts ps
   ```
+
+  `exec-wait` (alias `run`) is the one you usually want: it starts the
+  command AND blocks for it, prints stdout/stderr raw, and exits with the
+  remote command's own exit code — so `... exec-wait "test -f /x" && echo
+  yes` works. `exec` + `wait` stay for when you want the `job_id` back
+  immediately (long jobs you'll poll). Add `--json` to `exec-wait` for the
+  full envelope instead of raw output.
 
   > **Changed in v0.8.0.** This used to be a standalone `aw-remote-hosts`
   > binary that the app installed into `<AW_WORKSPACE_HOME>/bin` via
@@ -35,10 +43,11 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   how to use the CLI or the MCP tools below.
 
 - A **standalone MCP server** (`mcp_server/`, see its own
-  [README](mcp_server/README.md)) exposing the same six operations as MCP
-  tools: `remote_host_status`, `remote_host_exec_start`,
-  `remote_host_exec_status`, `remote_host_exec_wait`, `remote_host_exec_kill`,
-  `remote_host_list_processes`.
+  [README](mcp_server/README.md)) exposing the same operations as MCP
+  tools: `remote_host_status`, `remote_host_exec_run` (one-shot run+wait),
+  `remote_host_exec_start`, `remote_host_exec_status`, `remote_host_exec_wait`,
+  `remote_host_exec_kill`, `remote_host_list_processes`,
+  `remote_host_list_hosts`.
 
 ## How it's scoped to your account
 

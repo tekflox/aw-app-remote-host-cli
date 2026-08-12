@@ -33,10 +33,12 @@
       "provides": [
         "remote_host_status",
         "remote_host_exec_start",
+        "remote_host_exec_run",
         "remote_host_exec_status",
         "remote_host_exec_wait",
         "remote_host_exec_kill",
-        "remote_host_list_processes"
+        "remote_host_list_processes",
+        "remote_host_list_hosts"
       ]
     }
   },

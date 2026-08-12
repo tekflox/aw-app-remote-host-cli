@@ -22,7 +22,8 @@ accidentally address another workspace's machine.
 
 1. **CLI** — `aw-workspace-cli remote-hosts`, installed on the workspace's PATH by this
    app. Prefer this from a shell/terminal context.
-2. **MCP tools** — `remote_host_status`, `remote_host_exec_start`,
+2. **MCP tools** — `remote_host_status`, `remote_host_exec_run`,
+   `remote_host_exec_start`,
    `remote_host_exec_status`, `remote_host_exec_wait`, `remote_host_exec_kill`,
    `remote_host_list_processes`. Prefer these when driving from an agent
    that already has MCP tool access (no subprocess/shell needed).
@@ -38,17 +39,35 @@ available in your context.
    `remote_host_status`). If `connected` is `false`, nothing else here will
    work — the linked machine's `aw-remote-host` process isn't currently
    dialed in.
-2. **Start a command**: `aw-workspace-cli remote-hosts exec "<shell command>" [--timeout N]`
+2. **Run it and get the output, in one call** — this is what you want almost
+   every time: `aw-workspace-cli remote-hosts exec-wait "<shell command>"
+   [--timeout N]` (or the `remote_host_exec_run` MCP tool). It starts the
+   command, blocks for it, prints stdout/stderr raw (not JSON-escaped), and
+   exits with the remote command's own exit code. `run` is an alias. Add
+   `--json` if you need the full envelope.
+
+   Only drop to the two-step form below when you deliberately want the
+   `job_id` back immediately — a long build you'll poll, or something you may
+   need to `kill`.
+
+3. **Two-step — start**: `aw-workspace-cli remote-hosts exec "<shell command>" [--timeout N]`
    (or `remote_host_exec_start`). Returns a `job_id` — this does NOT block.
-3. **Wait for it to finish**: `aw-workspace-cli remote-hosts wait <job_id> [--timeout N]`
+4. **Two-step — wait**: `aw-workspace-cli remote-hosts wait <job_id> [--timeout N]`
    (or `remote_host_exec_wait`) — blocks up to `timeout_s` and returns the
    exit status/output once the job finishes.
-4. For a long-running or backgrounded command, poll instead of waiting:
+5. For a long-running or backgrounded command, poll instead of waiting:
    `aw-workspace-cli remote-hosts exec-status <job_id>` (or `remote_host_exec_status`).
-5. **Kill** a job that's misbehaving: `aw-workspace-cli remote-hosts kill <job_id>` (or
+6. **Kill** a job that's misbehaving: `aw-workspace-cli remote-hosts kill <job_id>` (or
    `remote_host_exec_kill`).
-6. **List everything currently running** via this path:
+7. **List everything currently running** via this path:
    `aw-workspace-cli remote-hosts ps` (or `remote_host_list_processes`).
+
+### Exit codes from `exec-wait`
+
+It forwards the REMOTE command's exit code, so a remote `1` is
+indistinguishable from this CLI's own error `1` (same trade-off `ssh`
+makes). Exit **124** means the wait timed out — the command may still be
+running; the message names the `job_id` to resume with `wait`.
 
 ## Errors you'll actually see
 

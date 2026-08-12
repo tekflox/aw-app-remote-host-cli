@@ -73,6 +73,29 @@ _TOOLS = [
         },
     },
     {
+        "name": "remote_host_exec_run",
+        "description": (
+            "Run a shell command on the remote host and block until it finishes, "
+            "returning stdout/stderr/exit_code in one call. Prefer this over "
+            "remote_host_exec_start + remote_host_exec_wait whenever you just "
+            "want a command's output. If it times out the result carries the "
+            "job_id, so remote_host_exec_wait can resume it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to run."},
+                "timeout_s": {"type": "number", "description": "Max seconds to wait."},
+                "host_id": {
+                    "type": "string",
+                    "description": ("Optional — id of a specific host (from remote_host_list_hosts) "
+                                     "to target instead of this workspace's own linked host."),
+                },
+            },
+            "required": ["command"],
+        },
+    },
+    {
         "name": "remote_host_exec_status",
         "description": "Check the status of a job started with remote_host_exec_start.",
         "inputSchema": {
@@ -134,6 +157,7 @@ _TOOLS = [
 _TOOL_TO_CMD = {
     "remote_host_status": "status",
     "remote_host_exec_start": "exec",
+    "remote_host_exec_run": "exec-wait",
     "remote_host_exec_status": "exec-status",
     "remote_host_exec_wait": "wait",
     "remote_host_exec_kill": "kill",
