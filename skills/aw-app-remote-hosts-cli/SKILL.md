@@ -3,7 +3,8 @@ name: aw-app-remote-hosts-cli
 description: >-
   Check status of, run commands on, and manage processes on the remote
   host(s) linked to this aw-workspace account (via the aw-remote-host BYOD
-  link), using the aw-remote-hosts CLI or this app's MCP tools. Use whenever
+  link), using the `aw-workspace-cli remote-hosts` command or this app's MCP
+  tools. Use whenever
   asked to run a command on "the linked machine" / "my remote host" / "the
   BYOD box", check whether it's online, or manage a job running there.
 ---
@@ -19,7 +20,7 @@ accidentally address another workspace's machine.
 
 ## Two equivalent surfaces
 
-1. **CLI** — `aw-remote-hosts`, installed on the workspace's PATH by this
+1. **CLI** — `aw-workspace-cli remote-hosts`, installed on the workspace's PATH by this
    app. Prefer this from a shell/terminal context.
 2. **MCP tools** — `remote_host_status`, `remote_host_exec_start`,
    `remote_host_exec_status`, `remote_host_exec_wait`, `remote_host_exec_kill`,
@@ -33,21 +34,21 @@ available in your context.
 
 ## Workflow
 
-1. **Check the host is online first**: `aw-remote-hosts status` (or
+1. **Check the host is online first**: `aw-workspace-cli remote-hosts status` (or
    `remote_host_status`). If `connected` is `false`, nothing else here will
    work — the linked machine's `aw-remote-host` process isn't currently
    dialed in.
-2. **Start a command**: `aw-remote-hosts exec "<shell command>" [--timeout N]`
+2. **Start a command**: `aw-workspace-cli remote-hosts exec "<shell command>" [--timeout N]`
    (or `remote_host_exec_start`). Returns a `job_id` — this does NOT block.
-3. **Wait for it to finish**: `aw-remote-hosts wait <job_id> [--timeout N]`
+3. **Wait for it to finish**: `aw-workspace-cli remote-hosts wait <job_id> [--timeout N]`
    (or `remote_host_exec_wait`) — blocks up to `timeout_s` and returns the
    exit status/output once the job finishes.
 4. For a long-running or backgrounded command, poll instead of waiting:
-   `aw-remote-hosts exec-status <job_id>` (or `remote_host_exec_status`).
-5. **Kill** a job that's misbehaving: `aw-remote-hosts kill <job_id>` (or
+   `aw-workspace-cli remote-hosts exec-status <job_id>` (or `remote_host_exec_status`).
+5. **Kill** a job that's misbehaving: `aw-workspace-cli remote-hosts kill <job_id>` (or
    `remote_host_exec_kill`).
 6. **List everything currently running** via this path:
-   `aw-remote-hosts ps` (or `remote_host_list_processes`).
+   `aw-workspace-cli remote-hosts ps` (or `remote_host_list_processes`).
 
 ## Errors you'll actually see
 

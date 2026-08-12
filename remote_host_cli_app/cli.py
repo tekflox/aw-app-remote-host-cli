@@ -1,10 +1,15 @@
-"""``aw-remote-hosts`` — CLI over ``client.RemoteHostClient``. Installed by
-``scripts/install_remote_hosts_cli.sh`` as a thin bash shim that runs this
-module with the app's own package dir on ``PYTHONPATH`` (Tier-1 apps load
-under a synthetic ``aw_apps.<id>`` namespace inside the workspace process —
-see aw-workspace's ``src/apps/runtime.py:_import_plugin`` — so this file is
-NOT importable as a plain ``remote_host_cli_app`` package from an installed
-CLI's own separate process without that explicit PYTHONPATH).
+"""CLI over ``client.RemoteHostClient``, surfaced as ``aw-workspace-cli
+remote-hosts`` (see this repo's ``commands/remote_hosts.py``, auto-discovered
+by aw-workspace-cli from the installed app dir).
+
+Until v0.7.0 this was instead a standalone ``aw-remote-hosts`` binary, a bash
+shim dropped into ``<AW_WORKSPACE_HOME>/bin`` by ``contributes.system_clis``.
+That shim is gone; the app-contributed-command path replaces it. Either way
+the same import problem has to be solved by the caller: Tier-1 apps load
+under a synthetic ``aw_apps.<id>`` namespace inside the workspace process
+(see aw-workspace's ``src/apps/runtime.py:_import_plugin``), so this file is
+NOT importable as a plain ``remote_host_cli_app`` package from a separate
+process without the app's package dir on ``sys.path``/``PYTHONPATH``.
 
 ``dispatch()`` is the single source of truth for "command name -> client
 call" — ``main()`` (this CLI's own argparse entrypoint) and
@@ -28,7 +33,7 @@ COMMANDS = ("status", "exec", "exec-status", "wait", "kill", "ps", "hosts")
 def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str | None = None,
              job_id: str | None = None, timeout_s: float | None = None,
              host_id: str | None = None) -> dict:
-    """Run one ``aw-remote-hosts`` operation and return its raw result dict.
+    """Run one remote-host operation and return its raw result dict.
 
     ``host_id`` (optional, from ``hosts``' own ``id`` field) targets a
     SPECIFIC host anywhere in the caller's account instead of this
@@ -69,10 +74,16 @@ def _print(data: dict) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hosts") -> int:
+    """``prog`` is what usage/error lines call this command. It is a parameter
+    rather than a constant because the same parser is reached under more than
+    one name — ``aw-workspace-cli remote-hosts`` (the contributed command, the
+    normal path) and plain ``python -m remote_host_cli_app.cli`` (direct
+    invocation, e.g. in tests) — and a usage string that doesn't match what
+    the user actually typed is worse than useless."""
     parser = argparse.ArgumentParser(
-        prog="aw-remote-hosts",
-        description="Interact with the remote host linked to this aw-workspace account.",
+        prog=prog,
+        description="Interact with the remote hosts linked to this aw-workspace account.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -117,10 +128,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         _print(result)
     except NotConfigured as e:
-        print(f"aw-remote-hosts: {e}", file=sys.stderr)
+        print(f"{prog}: {e}", file=sys.stderr)
         return 2
     except RemoteHostError as e:
-        print(f"aw-remote-hosts: {e}", file=sys.stderr)
+        print(f"{prog}: {e}", file=sys.stderr)
         return 1
     return 0
 

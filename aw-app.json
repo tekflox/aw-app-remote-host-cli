@@ -3,7 +3,7 @@
   "id": "remote-host-cli",
   "name": "Remote Host CLI",
   "version": "0.6.0",
-  "description": "Access the remote hosts linked to your aw-workspace account: installs an `aw-remote-hosts` CLI (status/exec/ps against the BYOD host linked via aw-remote-host) and contributes an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
+  "description": "Access the remote hosts linked to your aw-workspace account: contributes an `aw-workspace-cli remote-hosts` command (status/exec/ps against the BYOD host linked via aw-remote-host) and an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
   "tier": "inprocess",
   "publisher": "TekFlox",
   "resource_estimate": {
@@ -19,21 +19,14 @@
     ]
   },
   "permissions": [
-    "commands:install",
     "net:outbound"
   ],
   "contributes": {
-    "system_clis": [
-      {
-        "name": "aw-remote-hosts",
-        "installer": "scripts/install_remote_hosts_cli.sh"
-      }
-    ],
     "skills": [
       {
         "id": "aw-app-remote-hosts-cli",
         "path": "skills/aw-app-remote-hosts-cli/SKILL.md",
-        "description": "How to check status of, execute commands on, and manage processes on the remote hosts linked to this aw-workspace account, via the `aw-remote-hosts` CLI or this app's MCP server."
+        "description": "How to check status of, execute commands on, and manage processes on the remote hosts linked to this aw-workspace account, via `aw-workspace-cli remote-hosts` or this app's MCP server."
       }
     ],
     "mcp": {

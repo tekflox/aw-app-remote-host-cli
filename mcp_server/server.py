@@ -24,7 +24,7 @@ Inside a real aw-workspace container all three env vars are already present
 extra config.
 
 Every tool handler below calls THROUGH ``remote_host_cli_app.cli.dispatch()``
-— the exact same function the installed ``aw-remote-hosts`` CLI's own
+— the exact same function the ``aw-workspace-cli remote-hosts`` command's own
 ``main()`` calls — rather than talking to ``RemoteHostClient`` a second,
 separate way. One implementation of "what does each operation do"; this
 file is a thin JSON-RPC/MCP protocol adapter over the CLI, nothing more.

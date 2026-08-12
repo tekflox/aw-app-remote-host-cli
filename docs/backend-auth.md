@@ -18,7 +18,8 @@ Every aw-workspace container already carries `AW_WORKSPACE_HOST_TOKEN` — the
 durable `awlk_` credential the `aw-remote-host` `/link` handshake minted for
 this workspace, the same one `src/apps/registry_client.py` already uses to
 poll the app-installs registry. This app's `remote_host_cli_app/client.py`
-(shared by both the `aw-remote-hosts` CLI and `mcp_server/`) sends it as
+(shared by both the `aw-workspace-cli remote-hosts` command and
+`mcp_server/`) sends it as
 `Authorization: Bearer <token>` on every call to
 `/api/workspaces/{slug}/remote-host*`.
 

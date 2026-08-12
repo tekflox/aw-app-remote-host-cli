@@ -2,13 +2,21 @@
 Entrypoint referenced by aw-app.json's runtime.entrypoint
 ("remote_host_cli_app.plugin:RemoteHostCliAppPlugin").
 
-activate(ctx) installs the aw-remote-hosts CLI THROUGH the gated
-ctx.commands facade (capability commands:install), so the install is
-journaled and the framework reverts it (via scripts/uninstall.sh) on
-uninstall. This app contributes no backend routes/frontend — it's just a
-CLI installer + a skill + a standalone MCP server (mcp_server/, not loaded
-by this plugin — it's a separate process an agent CLI or the aw-mcp-gateway
-spawns on its own, see mcp_server/README.md).
+This app contributes no backend routes/frontend. Its CLI surface is
+``commands/remote_hosts.py`` — an aw-workspace-cli *contributed command*
+(``aw-workspace-cli remote-hosts``), auto-discovered from the installed app
+dir with no plugin involvement at all. Beyond that it ships a skill and a
+standalone MCP server (mcp_server/, not loaded by this plugin — it's a
+separate process an agent CLI or the aw-mcp-gateway spawns on its own, see
+mcp_server/README.md).
+
+Until v0.7.0 the CLI was instead a standalone ``aw-remote-hosts`` binary,
+installed by activate() through the gated ctx.commands facade (capability
+commands:install) as a bash shim in <AW_WORKSPACE_HOME>/bin. That whole
+path is gone — along with the capability, which this app no longer needs
+for anything. _remove_legacy_shim() below cleans up the leftover file on
+workspaces that ran an older version; see its docstring for why an update
+can't rely on the framework's own revert.
 
 activate(ctx) ALSO publishes AW_BACKEND_URL/AW_WORKSPACE/
 AW_WORKSPACE_HOST_TOKEN into <AW_WORKSPACE_HOME>/.env (see
@@ -24,13 +32,45 @@ os.environ-and-.env publish pattern for AW_WORKSPACE_API_KEY.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 
 log = logging.getLogger("aw_apps.remote-host-cli")
 
 _ENV_VARS = ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN")
+
+# The <AW_WORKSPACE_HOME>/bin shim this app installed until v0.7.0.
+_LEGACY_SHIM = "aw-remote-hosts"
+
+
+def _workspace_home() -> str:
+    return os.environ.get("AW_WORKSPACE_HOME") or os.path.join(
+        os.environ.get("AW_WORKSPACE_CONTAINER_DIR", "/opt/aw-workspace"), ".aw-workspace"
+    )
+
+
+def _remove_legacy_shim() -> str | None:
+    """One-time migration: delete the pre-v0.7.0 ``aw-remote-hosts`` shim.
+
+    The framework reverts a journaled system_cli install by replaying the
+    journal in REVERSE ON UNINSTALL only, and that journal is in-memory —
+    rebuilt each boot from what activate() actually registers. So an app
+    *update* never triggers the revert: dropping the manifest entry stops
+    the shim being recreated, but the file already on disk would sit there
+    forever, shadowing nothing and lying about how to reach this app.
+    Hence removing it here, on activate.
+
+    This deletes exactly one path, one this app itself created, and never
+    touches anything else in bin/ — so it needs no capability (we drop
+    commands:install in this same version) and is idempotent: after the
+    first post-update boot it's a no-op. Returns the path removed, or None.
+    """
+    path = os.path.join(_workspace_home(), "bin", _LEGACY_SHIM)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return None
+    return path
 
 
 def _publish_env_vars() -> list[str]:
@@ -44,9 +84,7 @@ def _publish_env_vars() -> list[str]:
     if not values:
         return []
 
-    home = os.environ.get("AW_WORKSPACE_HOME") or os.path.join(
-        os.environ.get("AW_WORKSPACE_CONTAINER_DIR", "/opt/aw-workspace"), ".aw-workspace"
-    )
+    home = _workspace_home()
     env_path = os.path.join(home, ".env")
 
     lines: list[str] = []
@@ -72,16 +110,15 @@ def _publish_env_vars() -> list[str]:
 
 class RemoteHostCliAppPlugin:
     async def activate(self, ctx) -> None:
-        with open(os.path.join(ctx.package_dir, "aw-app.json"), encoding="utf-8") as f:
-            manifest = json.load(f)
-
-        clis = manifest.get("contributes", {}).get("system_clis", [])
-        installed = []
-        for cli in clis:
-            ctx.commands.install_system_cli(
-                cli["name"], cli["installer"], uninstall="scripts/uninstall.sh"
-            )
-            installed.append(cli["name"])
+        try:
+            removed = _remove_legacy_shim()
+        except OSError:
+            removed = None
+            log.warning("aw-app-remote-host-cli: removing the legacy %s shim failed",
+                        _LEGACY_SHIM, exc_info=True)
+        if removed:
+            log.info("aw-app-remote-host-cli: removed legacy shim %s "
+                     "(use 'aw-workspace-cli remote-hosts' instead)", removed)
 
         try:
             published = _publish_env_vars()
@@ -89,12 +126,12 @@ class RemoteHostCliAppPlugin:
             published = []
             log.warning("aw-app-remote-host-cli: publishing env vars to .env failed", exc_info=True)
 
-        log.info("aw-app-remote-host-cli activated: installed %s, published %s",
-                  installed, published)
+        log.info("aw-app-remote-host-cli activated: published %s", published)
 
     async def deactivate(self) -> None:
-        # Revert is driven by the framework's journal reverse-replay (it runs
-        # scripts/uninstall.sh once on uninstall) — nothing to undo here.
+        # Nothing to undo: the CLI surface is a contributed command file that
+        # goes away with the app dir itself, and there is no journaled side
+        # effect left to revert (the system_cli install was dropped in v0.7.0).
         # The published .env values are left in place on purpose (harmless,
         # matches AW_WORKSPACE_API_KEY's own uninstall-independent .env
         # lifetime) — a real revoke already invalidates AW_WORKSPACE_HOST_TOKEN

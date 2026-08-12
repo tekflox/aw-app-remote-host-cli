@@ -1,6 +1,6 @@
 """HTTP client for aw-backend's ``/api/workspaces/{slug}/remote-host*``
 routes (see ``aw-backend/src/api/routes/host_link.py``) — shared by both the
-installed ``aw-remote-hosts`` CLI (``cli.py``) and the standalone MCP server
+``aw-workspace-cli remote-hosts`` command (``cli.py``) and the standalone MCP server
 (``mcp_server/server.py``), so the request-building/auth logic lives in
 exactly one place.
 

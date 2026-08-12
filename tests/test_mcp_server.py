@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for mcp_server/server.py — cli.dispatch() mocked out, no real
 network. Confirms the MCP layer is a thin protocol adapter over the same
-dispatch() the aw-remote-hosts CLI itself calls (no separate client logic).
+dispatch() the aw-workspace-cli remote-hosts command itself calls (no separate client logic).
 
 Run: python -m pytest tests/test_mcp_server.py -q
 """
