@@ -8,7 +8,7 @@ commands/*.py`` exposing ``COMMAND``/``DESCRIPTION``/``run``).
 
 Replaces the standalone ``aw-remote-hosts`` shim this app used to drop into
 ``<AW_WORKSPACE_HOME>/bin`` via ``contributes.system_clis`` (removed in
-v0.7.0). One namespace for every workspace verb, the command shows up in
+v0.8.0). One namespace for every workspace verb, the command shows up in
 ``aw-workspace-cli help``, and the app no longer needs the high-risk
 ``commands:install`` capability just to be reachable from a terminal.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for commands/remote_hosts.py — the aw-workspace-cli contributed
-command that replaced the pre-v0.7.0 `aw-remote-hosts` shim.
+command that replaced the pre-v0.8.0 `aw-remote-hosts` shim.
 
 The contract this file protects is the one aw-workspace's
 src/cli/discovery.py actually enforces: a module exposing COMMAND (str),

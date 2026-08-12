@@ -2,7 +2,7 @@
 remote-hosts`` (see this repo's ``commands/remote_hosts.py``, auto-discovered
 by aw-workspace-cli from the installed app dir).
 
-Until v0.7.0 this was instead a standalone ``aw-remote-hosts`` binary, a bash
+Until v0.8.0 this was instead a standalone ``aw-remote-hosts`` binary, a bash
 shim dropped into ``<AW_WORKSPACE_HOME>/bin`` by ``contributes.system_clis``.
 That shim is gone; the app-contributed-command path replaces it. Either way
 the same import problem has to be solved by the caller: Tier-1 apps load

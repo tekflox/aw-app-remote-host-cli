@@ -2,7 +2,7 @@
 """Unit tests for remote_host_cli_app/plugin.py — _publish_env_vars(), the
 "durably hand AW_WORKSPACE_HOST_TOKEN to any process on this filesystem"
 half of the app (client.py's .env fallback is the read side,
-tests/test_client.py), and _remove_legacy_shim(), the v0.7.0 migration.
+tests/test_client.py), and _remove_legacy_shim(), the v0.8.0 migration.
 No ctx/framework needed — pure file I/O.
 
 Run: python -m pytest tests/test_plugin.py -q
@@ -22,7 +22,7 @@ from remote_host_cli_app.plugin import _publish_env_vars, _remove_legacy_shim  #
 
 
 class RemoveLegacyShimTest(unittest.TestCase):
-    """v0.7.0 migration: the app used to install <home>/bin/aw-remote-hosts
+    """v0.8.0 migration: the app used to install <home>/bin/aw-remote-hosts
     via contributes.system_clis. An app *update* never triggers the
     framework's uninstall-only journal revert, so activate() deletes it."""
 

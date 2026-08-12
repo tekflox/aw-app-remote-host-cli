@@ -10,7 +10,7 @@ standalone MCP server (mcp_server/, not loaded by this plugin — it's a
 separate process an agent CLI or the aw-mcp-gateway spawns on its own, see
 mcp_server/README.md).
 
-Until v0.7.0 the CLI was instead a standalone ``aw-remote-hosts`` binary,
+Until v0.8.0 the CLI was instead a standalone ``aw-remote-hosts`` binary,
 installed by activate() through the gated ctx.commands facade (capability
 commands:install) as a bash shim in <AW_WORKSPACE_HOME>/bin. That whole
 path is gone — along with the capability, which this app no longer needs
@@ -39,7 +39,7 @@ log = logging.getLogger("aw_apps.remote-host-cli")
 
 _ENV_VARS = ("AW_BACKEND_URL", "AW_WORKSPACE", "AW_WORKSPACE_HOST_TOKEN")
 
-# The <AW_WORKSPACE_HOME>/bin shim this app installed until v0.7.0.
+# The <AW_WORKSPACE_HOME>/bin shim this app installed until v0.8.0.
 _LEGACY_SHIM = "aw-remote-hosts"
 
 
@@ -50,7 +50,7 @@ def _workspace_home() -> str:
 
 
 def _remove_legacy_shim() -> str | None:
-    """One-time migration: delete the pre-v0.7.0 ``aw-remote-hosts`` shim.
+    """One-time migration: delete the pre-v0.8.0 ``aw-remote-hosts`` shim.
 
     The framework reverts a journaled system_cli install by replaying the
     journal in REVERSE ON UNINSTALL only, and that journal is in-memory —
@@ -131,7 +131,7 @@ class RemoteHostCliAppPlugin:
     async def deactivate(self) -> None:
         # Nothing to undo: the CLI surface is a contributed command file that
         # goes away with the app dir itself, and there is no journaled side
-        # effect left to revert (the system_cli install was dropped in v0.7.0).
+        # effect left to revert (the system_cli install was dropped in v0.8.0).
         # The published .env values are left in place on purpose (harmless,
         # matches AW_WORKSPACE_API_KEY's own uninstall-independent .env
         # lifetime) — a real revoke already invalidates AW_WORKSPACE_HOST_TOKEN

@@ -20,7 +20,7 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   aw-workspace-cli remote-hosts ps
   ```
 
-  > **Changed in v0.7.0.** This used to be a standalone `aw-remote-hosts`
+  > **Changed in v0.8.0.** This used to be a standalone `aw-remote-hosts`
   > binary that the app installed into `<AW_WORKSPACE_HOME>/bin` via
   > `contributes.system_clis`. It is now a *contributed command*
   > (`commands/remote_hosts.py`, auto-discovered by aw-workspace-cli from
@@ -65,7 +65,7 @@ this app depended on.
   single source of truth shared by the command and the MCP server.
 - `remote_host_cli_app/plugin.py` — `RemoteHostCliAppPlugin` entrypoint;
   `activate(ctx)` publishes the backend env vars into
-  `<AW_WORKSPACE_HOME>/.env` and removes the pre-v0.7.0 shim if present.
+  `<AW_WORKSPACE_HOME>/.env` and removes the pre-v0.8.0 shim if present.
 - `mcp_server/` — the standalone MCP server (separate process, run via
   `python -m mcp_server.server`).
 - `skills/aw-app-remote-hosts-cli/SKILL.md` — usage guide for an agent.
