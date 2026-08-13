@@ -65,27 +65,41 @@ available in your context.
 
 ## Interactive shell (`shell`) — humans only
 
-`aw-workspace-cli remote-hosts shell [<host_id>]` attaches a real PTY —
-arrow keys, job control, `vim`, `top`, a live `tail -f`. With no argument it
-targets this workspace's own linked host; pass an id from `hosts` for any
-other host in the account. **Ctrl-]** disconnects.
+`aw-workspace-cli remote-hosts shell [<host_id>] [--target host|workspace]`
+attaches a real PTY — arrow keys, job control, `vim`, `top`, a live
+`tail -f`. With no argument it targets this workspace's own linked host; pass
+an id from `hosts` for any other host in the account. **Ctrl-]** disconnects.
 
-Three things to know before reaching for it:
+### `--target` — which machine
+
+- `--target host` (**default**) — the box running the `aw-remote-host`
+  process. For a bare metal link that's the metal; for a link running inside
+  a container, that container. This is the same machine `exec`/`exec-wait`
+  run on, which is why it's the default: two verbs of one command reaching
+  different machines is a trap.
+- `--target workspace` — that host's podman-managed workspace container
+  (`aw-remote-host-workspace`). This is where the console's browser terminal
+  has always landed, and it keeps landing there — the console sends no
+  target, and no target means workspace.
+
+The banner names where you landed, because the two often have identical
+prompts and you cannot tell them apart by looking.
+
+Two more things to know:
 
 - **There is no MCP tool for this, deliberately.** A PTY streams for minutes
   and returns no result, so it can't be a tool call and isn't in
   `cli.dispatch()`. An agent driving this workspace should use `exec-wait`;
   `shell` is for a human at a terminal. It refuses to run on a non-tty
   (exit 2) rather than half-work.
-- **It lands somewhere different from `exec`.** `shell` gives you a shell
-  *inside the host's workspace container* (`podman exec`, via aw-remote-host's
-  Phase 3 pty channel — the same one the console's browser terminal uses),
-  whereas `exec`/`exec-wait` run on the **host itself**. If you need a
-  command to run on the host, `exec-wait` is not just more convenient, it is
-  a different machine boundary.
 - **No exit code comes back.** The pty protocol reports a closed session with
   a reason, never a status. `shell` exits 0 on a normal disconnect. Anything
   scriptable stays on `exec-wait`.
+
+`--target host` needs an `aw-remote-host` new enough to understand the
+`target` field on `pty_open`. An older binary ignores it and silently opens
+the workspace container instead — if the prompt looks like the container when
+you asked for the host, update the host binary.
 
 Needs the `websockets` package. Core doesn't install an app's
 `runtime.pip_requires`, so if it's absent the CLI says so and every other

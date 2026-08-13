@@ -25,8 +25,19 @@ class ShellUrlTest(unittest.TestCase):
         url = shell.shell_url(_client(), "host-1", 120, 40)
         self.assertEqual(
             url,
-            "ws://127.0.0.1:9025/api/workspaces/ws/remote-hosts/host-1/shell?cols=120&rows=40",
+            "ws://127.0.0.1:9025/api/workspaces/ws/remote-hosts/host-1/shell"
+            "?cols=120&rows=40&target=host",
         )
+
+    def test_target_defaults_to_the_host_not_the_container(self):
+        """`exec` runs on the host; a `shell` that quietly landed in the
+        workspace container instead would be a different machine with an
+        identical-looking prompt."""
+        self.assertIn("target=host", shell.shell_url(_client(), "h", 80, 24))
+
+    def test_workspace_target_is_carried_through(self):
+        url = shell.shell_url(_client(), "h", 80, 24, shell.TARGET_WORKSPACE)
+        self.assertIn("target=workspace", url)
 
     def test_https_becomes_wss(self):
         url = shell.shell_url(_client(backend="https://aw.example.com"), "h", 80, 24)
@@ -95,13 +106,26 @@ class CliWiringTest(unittest.TestCase):
     def test_shell_subcommand_forwards_the_host_argument(self, run):
         run.return_value = 0
         self.assertEqual(main(["shell", "host-7"]), 0)
-        run.assert_called_once_with("host-7")
+        run.assert_called_once_with("host-7", "host")
 
     @patch("remote_host_cli_app.shell.run_shell")
-    def test_host_argument_is_optional(self, run):
+    def test_host_argument_is_optional_and_target_defaults_to_host(self, run):
         run.return_value = 0
         main(["shell"])
-        run.assert_called_once_with(None)
+        run.assert_called_once_with(None, "host")
+
+    @patch("remote_host_cli_app.shell.run_shell")
+    def test_target_workspace_is_forwarded(self, run):
+        run.return_value = 0
+        main(["shell", "--target", "workspace"])
+        run.assert_called_once_with(None, "workspace")
+
+    def test_an_unknown_target_is_rejected_by_the_parser(self):
+        """argparse choices rather than a runtime check: a typo'd target must
+        never reach the host, where it would come back as an opaque
+        pty_close."""
+        with self.assertRaises(SystemExit):
+            main(["shell", "--target", "hsot"])
 
     @patch("remote_host_cli_app.shell.run_shell")
     def test_shell_unavailable_exits_2_with_the_reason(self, run):

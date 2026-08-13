@@ -196,6 +196,10 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
     )
     p_shell.add_argument("host_id", nargs="?", default=None,
                           help="Host id from 'hosts' (default: this workspace's own linked host).")
+    p_shell.add_argument("--target", default="host", choices=("host", "workspace"),
+                          help="Which machine: 'host' (default) is the box running "
+                               "aw-remote-host — the same place exec/exec-wait run; "
+                               "'workspace' is that host's workspace container.")
 
     args = parser.parse_args(argv)
 
@@ -203,7 +207,7 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
         from .shell import ShellUnavailable, run_shell
 
         try:
-            return run_shell(args.host_id)
+            return run_shell(args.host_id, args.target)
         except (NotConfigured, ShellUnavailable) as e:
             print(f"{prog}: {e}", file=sys.stderr)
             return 2

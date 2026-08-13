@@ -15,13 +15,12 @@ frames over that host's ``/link`` tunnel. Authenticated with the same
 header — NOT as ``?token=``, which the backend also accepts but which would
 write the credential into any proxy/access log on the path.
 
-Where the shell lands: inside the host's *workspace container* (aw-remote-
-host's ``shell.DefaultSpawner`` runs ``podman exec -it``), which is a
-different place from where ``exec`` runs (the host itself, via
-``ops_exec.go``'s ``sh -c``). That asymmetry is inherited from the existing
-Phase 3 pty channel the console's terminal already uses; targeting the host
-itself needs a ``target`` field on ``pty_open`` and a matching spawner, i.e.
-an aw-remote-host release.
+Where the shell lands is a choice, not a given. ``--target host`` (the
+default) opens it on the box running aw-remote-host — the same machine
+``exec``/``exec-wait`` run on, which is what "shell into my remote host"
+means and why it is the default. ``--target workspace`` opens it inside that
+host's podman-managed workspace container instead, which is where the
+console's browser terminal has always landed.
 
 ``websockets`` is imported lazily, inside ``run_shell``: this module is
 imported by ``cli.py`` at startup for every subcommand, and a missing
@@ -49,6 +48,16 @@ ESCAPE_KEY = b"\x1d"
 DEFAULT_COLS = 80
 DEFAULT_ROWS = 24
 
+# Which machine the PTY lands on. TARGET_HOST is the box running
+# aw-remote-host — for a containerised deployment that container, for a bare
+# metal one the metal. TARGET_WORKSPACE is that host's podman-managed
+# workspace container. Host is this CLI's default because it matches where
+# `exec`/`exec-wait` already run: two verbs in the same command that quietly
+# reach different machines is the confusion worth designing out.
+TARGET_HOST = "host"
+TARGET_WORKSPACE = "workspace"
+TARGETS = (TARGET_HOST, TARGET_WORKSPACE)
+
 
 class ShellUnavailable(RuntimeError):
     """The shell could not be opened or the session ended abnormally — the
@@ -66,7 +75,8 @@ def terminal_size() -> tuple[int, int]:
         return DEFAULT_COLS, DEFAULT_ROWS
 
 
-def shell_url(client: RemoteHostClient, host_id: str, cols: int, rows: int) -> str:
+def shell_url(client: RemoteHostClient, host_id: str, cols: int, rows: int,
+              target: str = TARGET_HOST) -> str:
     """``http(s)://`` backend URL -> the ``ws(s)://`` shell endpoint for
     ``host_id``. Scheme swap is a prefix replace rather than urlparse because
     the only two shapes ``AW_BACKEND_URL`` ever takes are http and https."""
@@ -76,7 +86,7 @@ def shell_url(client: RemoteHostClient, host_id: str, cols: int, rows: int) -> s
     elif base.startswith("http://"):
         base = "ws://" + base[len("http://"):]
     return (f"{base}/api/workspaces/{client.workspace}/remote-hosts/{host_id}"
-            f"/shell?cols={cols}&rows={rows}")
+            f"/shell?cols={cols}&rows={rows}&target={target}")
 
 
 def resolve_host_id(client: RemoteHostClient, host_id: str | None) -> str:
@@ -230,7 +240,8 @@ def _connect_error(exc: Exception) -> str:
     return text
 
 
-def run_shell(host_id: str | None = None, *, client: RemoteHostClient | None = None) -> int:
+def run_shell(host_id: str | None = None, target: str = TARGET_HOST, *,
+              client: RemoteHostClient | None = None) -> int:
     """Open an interactive shell and block until it ends. Returns the process
     exit code for ``main()``.
 
@@ -256,11 +267,18 @@ def run_shell(host_id: str | None = None, *, client: RemoteHostClient | None = N
               file=sys.stderr)
         return 2
 
+    if target not in TARGETS:
+        raise ShellUnavailable(f"unknown target {target!r} (expected one of {', '.join(TARGETS)})")
+
     host_id = resolve_host_id(client, host_id)
     cols, rows = terminal_size()
-    url = shell_url(client, host_id, cols, rows)
+    url = shell_url(client, host_id, cols, rows, target)
 
-    print(f"Connected to {host_id} — press Ctrl-] to disconnect.", file=sys.stderr)
+    # Name the target, not just the host id: `host` and `workspace` are two
+    # different machines with often-identical prompts, and landing on the
+    # wrong one is not something you can tell by looking.
+    where = "the host itself" if target == TARGET_HOST else "the workspace container"
+    print(f"Connected to {host_id} ({where}) — press Ctrl-] to disconnect.", file=sys.stderr)
 
     stdin_fd = sys.stdin.fileno()
     saved = termios.tcgetattr(stdin_fd)
