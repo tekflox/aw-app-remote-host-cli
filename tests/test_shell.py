@@ -22,10 +22,10 @@ def _client(backend="http://127.0.0.1:9025", workspace="ws", token="awlk_x"):
 
 class ShellUrlTest(unittest.TestCase):
     def test_http_becomes_ws_and_carries_the_terminal_size(self):
-        url = shell.shell_url(_client(), "host-1", 120, 40)
+        url = shell.shell_url(_client(), "1111aaaa2222bbbb", 120, 40)
         self.assertEqual(
             url,
-            "ws://127.0.0.1:9025/api/workspaces/ws/remote-hosts/host-1/shell"
+            "ws://127.0.0.1:9025/api/workspaces/ws/remote-hosts/1111aaaa2222bbbb/shell"
             "?cols=120&rows=40&target=host",
         )
 
@@ -52,13 +52,13 @@ class ShellUrlTest(unittest.TestCase):
 class ResolveHostTest(unittest.TestCase):
     def test_explicit_host_id_skips_the_status_call(self):
         c = _client()
-        self.assertEqual(shell.resolve_host_id(c, "host-9"), "host-9")
+        self.assertEqual(shell.resolve_host_id(c, "9999eeee8888ffff"), "9999eeee8888ffff")
         c.status.assert_not_called()
 
     def test_no_argument_resolves_this_workspaces_own_host(self):
         c = _client()
-        c.status.return_value = {"id": "host-own", "connected": True}
-        self.assertEqual(shell.resolve_host_id(c, None), "host-own")
+        c.status.return_value = {"id": "0abc0000dabc0000", "connected": True}
+        self.assertEqual(shell.resolve_host_id(c, None), "0abc0000dabc0000")
 
     def test_unlinked_workspace_is_a_clear_error_not_a_connect_attempt(self):
         c = _client()
@@ -105,8 +105,8 @@ class CliWiringTest(unittest.TestCase):
     @patch("remote_host_cli_app.shell.run_shell")
     def test_shell_subcommand_forwards_the_host_argument(self, run):
         run.return_value = 0
-        self.assertEqual(main(["shell", "host-7"]), 0)
-        run.assert_called_once_with("host-7", "host")
+        self.assertEqual(main(["shell", "7777aaaa7777bbbb"]), 0)
+        run.assert_called_once_with("7777aaaa7777bbbb", "host")
 
     @patch("remote_host_cli_app.shell.run_shell")
     def test_host_argument_is_optional_and_target_defaults_to_host(self, run):

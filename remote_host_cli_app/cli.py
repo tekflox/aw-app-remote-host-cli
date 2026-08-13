@@ -26,6 +26,7 @@ import json
 import sys
 
 from .client import NotConfigured, RemoteHostClient, RemoteHostError
+from .hosts import AmbiguousHost, HostNotFound, resolve_host_ref
 
 COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts")
 
@@ -45,16 +46,23 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
              host_id: str | None = None) -> dict:
     """Run one remote-host operation and return its raw result dict.
 
-    ``host_id`` (optional, from ``hosts``' own ``id`` field) targets a
-    SPECIFIC host anywhere in the caller's account instead of this
-    workspace's own linked host — aw-backend enforces same-account
+    ``host_id`` (optional) targets a SPECIFIC host anywhere in the caller's
+    account instead of this workspace's own linked host. Despite the name it
+    accepts any reference ``hosts`` reports — id, workspace slug, or hostname
+    — since nobody remembers a 16-hex id. aw-backend enforces same-account
     ownership server-side, so this is just which URL gets called, not a
     trust boundary this client itself needs to police.
 
-    Raises ``NotConfigured``/``RemoteHostError`` straight through — callers
-    (``main()`` below, and the MCP server) decide how to surface those.
+    Raises ``NotConfigured``/``RemoteHostError``/``HostNotFound``/
+    ``AmbiguousHost`` straight through — callers (``main()`` below, and the
+    MCP server) decide how to surface those.
     """
     client = client or RemoteHostClient()
+    # --host takes an id, a workspace slug or a hostname, same as `shell`'s
+    # positional. Resolved once here rather than per-verb so the two can't
+    # drift apart; an id-shaped ref costs no extra request (see hosts.py).
+    if host_id:
+        host_id = resolve_host_ref(client, host_id)
     if cmd == "status":
         return client.status()
     if cmd == "exec":
@@ -143,7 +151,8 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    host_help = "Target a specific host id (from 'hosts') instead of this workspace's own linked host."
+    host_help = ("Target a specific host instead of this workspace's own linked one — "
+                 "its id, its workspace slug, or its hostname (all from 'hosts').")
 
     sub.add_parser("status", help="Show the linked host's hostname/connected state.")
 
@@ -194,8 +203,9 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
                     "arrow keys, job control, vim, the lot. Needs a terminal; use "
                     "'exec-wait' for anything scripted. Press Ctrl-] to disconnect.",
     )
-    p_shell.add_argument("host_id", nargs="?", default=None,
-                          help="Host id from 'hosts' (default: this workspace's own linked host).")
+    p_shell.add_argument("host_id", nargs="?", default=None, metavar="HOST",
+                          help="Host id, workspace slug or hostname from 'hosts' "
+                               "(default: this workspace's own linked host).")
     p_shell.add_argument("--target", default="host", choices=("host", "workspace"),
                           help="Which machine: 'host' (default) is the box running "
                                "aw-remote-host — the same place exec/exec-wait run; "
@@ -208,7 +218,7 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
 
         try:
             return run_shell(args.host_id, args.target)
-        except (NotConfigured, ShellUnavailable) as e:
+        except (NotConfigured, ShellUnavailable, HostNotFound, AmbiguousHost) as e:
             print(f"{prog}: {e}", file=sys.stderr)
             return 2
         except RemoteHostError as e:
@@ -234,7 +244,7 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
         if cmd == "exec-wait" and not getattr(args, "as_json", False):
             return _render_run(result, prog)
         _print(result)
-    except NotConfigured as e:
+    except (NotConfigured, HostNotFound, AmbiguousHost) as e:
         print(f"{prog}: {e}", file=sys.stderr)
         return 2
     except RemoteHostError as e:

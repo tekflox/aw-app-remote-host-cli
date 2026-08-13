@@ -64,9 +64,10 @@ _TOOLS = [
                 "timeout_s": {"type": "number", "description": "Optional host-side timeout in seconds."},
                 "host_id": {
                     "type": "string",
-                    "description": ("Optional — id of a specific host (from remote_host_list_hosts) "
-                                     "to target instead of this workspace's own linked host. Must "
-                                     "belong to this same account."),
+                    "description": ("Optional — a specific host to target instead of this "
+                                     "workspace's own linked host: its id, workspace slug, or "
+                                     "hostname, all from remote_host_list_hosts. Must belong to "
+                                     "this same account."),
                 },
             },
             "required": ["command"],
@@ -88,8 +89,9 @@ _TOOLS = [
                 "timeout_s": {"type": "number", "description": "Max seconds to wait."},
                 "host_id": {
                     "type": "string",
-                    "description": ("Optional — id of a specific host (from remote_host_list_hosts) "
-                                     "to target instead of this workspace's own linked host."),
+                    "description": ("Optional — a specific host to target instead of this "
+                                     "workspace's own linked host: its id, workspace slug, or "
+                                     "hostname, all from remote_host_list_hosts."),
                 },
             },
             "required": ["command"],
@@ -102,7 +104,7 @@ _TOOLS = [
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
-                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
+                "host_id": {"type": "string", "description": "Match the host exec_start used, if any (id, workspace slug or hostname)."},
             },
             "required": ["job_id"],
         },
@@ -115,7 +117,7 @@ _TOOLS = [
             "properties": {
                 "job_id": {"type": "string"},
                 "timeout_s": {"type": "number", "description": "Max seconds to wait."},
-                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
+                "host_id": {"type": "string", "description": "Match the host exec_start used, if any (id, workspace slug or hostname)."},
             },
             "required": ["job_id"],
         },
@@ -127,18 +129,18 @@ _TOOLS = [
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
-                "host_id": {"type": "string", "description": "Match the host_id exec_start used, if any."},
+                "host_id": {"type": "string", "description": "Match the host exec_start used, if any (id, workspace slug or hostname)."},
             },
             "required": ["job_id"],
         },
     },
     {
         "name": "remote_host_list_processes",
-        "description": "List processes started via exec on the linked remote host, or on a specific host_id.",
+        "description": "List processes started via exec on the linked remote host, or on a specific host (id, workspace slug or hostname).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "host_id": {"type": "string", "description": "Optional — target a specific host id instead of this workspace's own."},
+                "host_id": {"type": "string", "description": "Optional — target a specific host (id, workspace slug or hostname) instead of this workspace's own."},
             },
         },
     },

@@ -38,6 +38,7 @@ import signal
 import sys
 
 from .client import RemoteHostClient
+from .hosts import resolve_host_ref
 
 # Ctrl-] — telnet's escape, and the reason this is not Ctrl-C or Ctrl-D: in
 # raw mode every keystroke belongs to the remote shell, so the local client
@@ -89,14 +90,17 @@ def shell_url(client: RemoteHostClient, host_id: str, cols: int, rows: int,
             f"/shell?cols={cols}&rows={rows}&target={target}")
 
 
-def resolve_host_id(client: RemoteHostClient, host_id: str | None) -> str:
+def resolve_host_id(client: RemoteHostClient, host_ref: str | None) -> str:
     """``shell`` with no argument means this workspace's own linked host —
     but the WS route is host-scoped only (there is no ``/remote-host/shell``
     singular sibling), so the id has to be resolved before connecting.
     ``status()`` is the cheapest way to learn it and doubles as the
-    is-it-even-online check."""
-    if host_id:
-        return host_id
+    is-it-even-online check.
+
+    With an argument, ``host_ref`` is an id, a workspace slug or a hostname —
+    see ``hosts.resolve_host_ref``."""
+    if host_ref:
+        return resolve_host_ref(client, host_ref)
     status = client.status()
     resolved = status.get("id")
     if not resolved:

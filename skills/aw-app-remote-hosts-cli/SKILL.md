@@ -69,11 +69,25 @@ available in your context.
 An account can have several linked hosts. `aw-workspace-cli remote-hosts
 hosts` (or `remote_host_list_hosts`) lists every one across every workspace
 the account owns, with its `id`, `hostname`, `os`/`arch` and `connected`
-flag. Every verb above then takes `--host <id>` to address that host instead
+flag. Every verb above then takes `--host <ref>` to address that host instead
 of this workspace's own.
 
+**`<ref>` is an id, a workspace slug, or a hostname** — whichever you can
+actually remember. `shell`'s positional argument takes the same three. Slugs
+and hostnames match case-insensitively; ids are exact.
+
+Ambiguity is never guessed at. A slug can match more than one host (re-linking
+a workspace leaves the previous row behind), so:
+
+- if exactly one match is `connected`, that is the one — the others are dead
+  rows;
+- otherwise the command fails and lists the candidates for you to name by id.
+
+Opening a session on a machine you didn't name is a worse outcome than making
+you type sixteen characters.
+
 Same-account ownership is resolved server-side, so `--host` is only *which
-URL gets called* — an id outside the account 404s rather than being a check
+URL gets called* — a host outside the account 404s rather than being a check
 this client performs.
 
 ### Exit codes from `exec-wait`
@@ -85,10 +99,12 @@ running; the message names the `job_id` to resume with `wait`.
 
 ## Interactive shell (`shell`) — humans only
 
-`aw-workspace-cli remote-hosts shell [<host_id>] [--target host|workspace]`
+`aw-workspace-cli remote-hosts shell [<host>] [--target host|workspace]`
 attaches a real PTY — arrow keys, job control, `vim`, `top`, a live
-`tail -f`. With no argument it targets this workspace's own linked host; pass
-an id from `hosts` for any other host in the account. **Ctrl-]** disconnects.
+`tail -f`. With no argument it targets this workspace's own linked host;
+otherwise name any host in the account by id, workspace slug or hostname
+(see "Targeting a specific host" above) — `shell my-workspace-slug` is the
+usual way. **Ctrl-]** disconnects.
 
 ### `--target` — which machine
 
@@ -197,6 +213,9 @@ comparison from above.
 - `"Not found"` (404) — no active (non-revoked) `RemoteHost` row for this
   workspace, or a `--host` id outside this account. Same fix: link a host, or
   take the id from `hosts`.
+- `no host matching '<ref>' in this account` / `'<ref>' matches N hosts` —
+  the reference didn't resolve. Both messages list the hosts they did see, so
+  the next command is always in front of you; no need to call `hosts` again.
 - A 409-shaped error (`CommandUnavailable` upstream) — the host row exists
   but isn't currently connected (no live `/link` WebSocket). Check `status`
   first; this is the same "offline" case, not a bug.
