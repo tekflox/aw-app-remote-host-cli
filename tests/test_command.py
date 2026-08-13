@@ -98,11 +98,23 @@ class CommandRunTest(unittest.TestCase):
                 raise ImportError("No module named 'httpx'")
             return real_import(name, *a, **kw)
 
-        for mod_name in [m for m in sys.modules if m.startswith("remote_host_cli_app")]:
+        # Evicting the package is what makes `boom` reachable at all (an
+        # already-imported module never hits __import__'s slow path). It must
+        # be put BACK afterwards: a later test that imports the package again
+        # would otherwise get a second, distinct set of module objects, and
+        # `except ShellUnavailable` in cli.py stops matching the class a test
+        # raised from the first copy. That failure lands in an unrelated test
+        # file and looks like a bug in the code under test.
+        evicted = {m: sys.modules[m] for m in list(sys.modules)
+                   if m.startswith("remote_host_cli_app")}
+        for mod_name in evicted:
             del sys.modules[mod_name]
 
-        with patch("builtins.__import__", side_effect=boom):
-            rc = mod.run(["status"])
+        try:
+            with patch("builtins.__import__", side_effect=boom):
+                rc = mod.run(["status"])
+        finally:
+            sys.modules.update(evicted)
 
         self.assertEqual(rc, 1)
 

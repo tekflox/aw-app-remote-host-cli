@@ -28,6 +28,7 @@ Usage:
     aw-workspace-cli remote-hosts exec "ps aux" --timeout 30
     aw-workspace-cli remote-hosts wait <job_id>
     aw-workspace-cli remote-hosts ps
+    aw-workspace-cli remote-hosts shell            # interactive PTY, Ctrl-] to exit
 """
 from __future__ import annotations
 

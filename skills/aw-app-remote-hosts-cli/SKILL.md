@@ -4,9 +4,10 @@ description: >-
   Check status of, run commands on, and manage processes on the remote
   host(s) linked to this aw-workspace account (via the aw-remote-host BYOD
   link), using the `aw-workspace-cli remote-hosts` command or this app's MCP
-  tools. Use whenever
+  tools — including an interactive PTY shell. Use whenever
   asked to run a command on "the linked machine" / "my remote host" / "the
-  BYOD box", check whether it's online, or manage a job running there.
+  BYOD box", check whether it's online, manage a job running there, or open
+  an interactive shell on it.
 ---
 
 # Remote Host CLI
@@ -61,6 +62,34 @@ available in your context.
    `remote_host_exec_kill`).
 7. **List everything currently running** via this path:
    `aw-workspace-cli remote-hosts ps` (or `remote_host_list_processes`).
+
+## Interactive shell (`shell`) — humans only
+
+`aw-workspace-cli remote-hosts shell [<host_id>]` attaches a real PTY —
+arrow keys, job control, `vim`, `top`, a live `tail -f`. With no argument it
+targets this workspace's own linked host; pass an id from `hosts` for any
+other host in the account. **Ctrl-]** disconnects.
+
+Three things to know before reaching for it:
+
+- **There is no MCP tool for this, deliberately.** A PTY streams for minutes
+  and returns no result, so it can't be a tool call and isn't in
+  `cli.dispatch()`. An agent driving this workspace should use `exec-wait`;
+  `shell` is for a human at a terminal. It refuses to run on a non-tty
+  (exit 2) rather than half-work.
+- **It lands somewhere different from `exec`.** `shell` gives you a shell
+  *inside the host's workspace container* (`podman exec`, via aw-remote-host's
+  Phase 3 pty channel — the same one the console's browser terminal uses),
+  whereas `exec`/`exec-wait` run on the **host itself**. If you need a
+  command to run on the host, `exec-wait` is not just more convenient, it is
+  a different machine boundary.
+- **No exit code comes back.** The pty protocol reports a closed session with
+  a reason, never a status. `shell` exits 0 on a normal disconnect. Anything
+  scriptable stays on `exec-wait`.
+
+Needs the `websockets` package. Core doesn't install an app's
+`runtime.pip_requires`, so if it's absent the CLI says so and every other
+subcommand keeps working.
 
 ### Exit codes from `exec-wait`
 

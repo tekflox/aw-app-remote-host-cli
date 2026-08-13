@@ -29,6 +29,11 @@ from .client import NotConfigured, RemoteHostClient, RemoteHostError
 
 COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts")
 
+# `shell` is deliberately NOT in COMMANDS/dispatch(): dispatch's contract is
+# "one operation -> one result dict", which the MCP server relies on. An
+# interactive PTY streams for minutes and returns nothing, so it lives in
+# shell.py and is handled directly in main() — see that module's docstring.
+
 # Conventional "the thing you waited for never finished" exit code (timeout(1),
 # and what a shell reports for a SIGTERM'd child). Distinct from any real remote
 # exit code we'd otherwise forward, and from this CLI's own 1/2.
@@ -182,7 +187,33 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
 
     sub.add_parser("hosts", help="List every remote host linked across this account's workspaces.")
 
+    p_shell = sub.add_parser(
+        "shell",
+        help="Open an interactive shell (PTY) on a linked host.",
+        description="Attach a real interactive bash/sh to a linked remote host — "
+                    "arrow keys, job control, vim, the lot. Needs a terminal; use "
+                    "'exec-wait' for anything scripted. Press Ctrl-] to disconnect.",
+    )
+    p_shell.add_argument("host_id", nargs="?", default=None,
+                          help="Host id from 'hosts' (default: this workspace's own linked host).")
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "shell":
+        from .shell import ShellUnavailable, run_shell
+
+        try:
+            return run_shell(args.host_id)
+        except (NotConfigured, ShellUnavailable) as e:
+            print(f"{prog}: {e}", file=sys.stderr)
+            return 2
+        except RemoteHostError as e:
+            print(f"{prog}: {e}", file=sys.stderr)
+            return 1
+        except ImportError as e:
+            print(f"{prog}: interactive shell needs the 'websockets' package "
+                  f"({e}). Every other subcommand works without it.", file=sys.stderr)
+            return 2
 
     # argparse reports the alias the user typed, but dispatch() only knows the
     # canonical names in COMMANDS.
