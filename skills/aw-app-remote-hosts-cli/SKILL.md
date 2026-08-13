@@ -14,10 +14,10 @@ description: >-
 
 Lets an agent (or a human, from a terminal) interact with the remote
 host(s) linked to this aw-workspace account through the `aw-remote-host`
-BYOD bootstrap client. Everything here is scoped to **only this account's
-own linked host** — aw-backend enforces that server-side (see
+BYOD bootstrap client. Everything here is scoped to **this account's own
+linked hosts** — aw-backend enforces that server-side (see
 `docs/backend-auth.md` in this app's repo), so there is no way to
-accidentally address another workspace's machine.
+accidentally address another account's machine.
 
 ## Two equivalent surfaces
 
@@ -26,8 +26,9 @@ accidentally address another workspace's machine.
 2. **MCP tools** — `remote_host_status`, `remote_host_exec_run`,
    `remote_host_exec_start`,
    `remote_host_exec_status`, `remote_host_exec_wait`, `remote_host_exec_kill`,
-   `remote_host_list_processes`. Prefer these when driving from an agent
-   that already has MCP tool access (no subprocess/shell needed).
+   `remote_host_list_processes`, `remote_host_list_hosts`. Prefer these when
+   driving from an agent that already has MCP tool access (no subprocess/shell
+   needed).
 
 Both wrap the exact same aw-backend routes
 (`/api/workspaces/{slug}/remote-host*`) through the same client
@@ -63,6 +64,25 @@ available in your context.
 7. **List everything currently running** via this path:
    `aw-workspace-cli remote-hosts ps` (or `remote_host_list_processes`).
 
+### Targeting a specific host
+
+An account can have several linked hosts. `aw-workspace-cli remote-hosts
+hosts` (or `remote_host_list_hosts`) lists every one across every workspace
+the account owns, with its `id`, `hostname`, `os`/`arch` and `connected`
+flag. Every verb above then takes `--host <id>` to address that host instead
+of this workspace's own.
+
+Same-account ownership is resolved server-side, so `--host` is only *which
+URL gets called* — an id outside the account 404s rather than being a check
+this client performs.
+
+### Exit codes from `exec-wait`
+
+It forwards the REMOTE command's exit code, so a remote `1` is
+indistinguishable from this CLI's own error `1` (same trade-off `ssh`
+makes). Exit **124** means the wait timed out — the command may still be
+running; the message names the `job_id` to resume with `wait`.
+
 ## Interactive shell (`shell`) — humans only
 
 `aw-workspace-cli remote-hosts shell [<host_id>] [--target host|workspace]`
@@ -73,17 +93,22 @@ an id from `hosts` for any other host in the account. **Ctrl-]** disconnects.
 ### `--target` — which machine
 
 - `--target host` (**default**) — the box running the `aw-remote-host`
-  process. For a bare metal link that's the metal; for a link running inside
-  a container, that container. This is the same machine `exec`/`exec-wait`
-  run on, which is why it's the default: two verbs of one command reaching
-  different machines is a trap.
+  process. For a bare metal link that's the metal; for a link that itself
+  runs inside a container, that container. This is the same machine
+  `exec`/`exec-wait` run on, which is why it's the default: two verbs of one
+  command reaching different machines is a trap.
 - `--target workspace` — that host's podman-managed workspace container
   (`aw-remote-host-workspace`). This is where the console's browser terminal
   has always landed, and it keeps landing there — the console sends no
   target, and no target means workspace.
 
+Not every host has both. A host that runs no workspace container fails
+`--target workspace` with an explicit error naming the target (no such
+container, or no `podman` on `PATH`). That is the correct answer, not a bug.
+
 The banner names where you landed, because the two often have identical
-prompts and you cannot tell them apart by looking.
+prompts and you cannot tell them apart by looking. To confirm from inside a
+session, `hostname; id -un` — the two targets normally differ in both.
 
 Two more things to know:
 
@@ -96,21 +121,72 @@ Two more things to know:
   a reason, never a status. `shell` exits 0 on a normal disconnect. Anything
   scriptable stays on `exec-wait`.
 
-`--target host` needs an `aw-remote-host` new enough to understand the
-`target` field on `pty_open`. An older binary ignores it and silently opens
-the workspace container instead — if the prompt looks like the container when
-you asked for the host, update the host binary.
-
 Needs the `websockets` package. Core doesn't install an app's
 `runtime.pip_requires`, so if it's absent the CLI says so and every other
 subcommand keeps working.
 
-### Exit codes from `exec-wait`
+### A PTY is not request/response
 
-It forwards the REMOTE command's exit code, so a remote `1` is
-indistinguishable from this CLI's own error `1` (same trade-off `ssh`
-makes). Exit **124** means the wait timed out — the command may still be
-running; the message names the `job_id` to resume with `wait`.
+Bytes written to a pty before the remote shell starts reading are **gone** —
+there is no buffering contract and no error. Anything automating this channel
+must wait for the shell to print something (its prompt) before sending the
+first keystroke, exactly as a human does.
+
+This bites intermittently rather than always: when the shell is slow to spawn
+(a container exec, say) the startup delay hides it, and the same code then
+loses its input against a fast local shell. If you see a prompt and no echo of
+what you sent, this is why — not a dropped connection.
+
+## Host version skew
+
+Host-side features arrive with the `aw-remote-host` binary, which is
+**updated independently of this app and of the backend**. A host older than
+the feature does not always error — `--target host`, for one, is silently
+ignored by a binary that predates it, and you land in the workspace container
+instead.
+
+Detect it by comparing, not by trusting: open both targets and run
+`hostname; id -un` in each. Two identical answers mean the target field is
+being ignored.
+
+### Updating a host binary
+
+`aw-workspace-cli update remote-host` exists, but it is gated on a **user
+identity token** minted by a browser login to the console. An agent or a
+plain CLI holding only the workspace's host credential cannot call it — this
+is a deliberate boundary, not a bug to work around lightly.
+
+When you do need to update a host from this surface, the operation is the
+same one the built-in self-update performs, done by hand over `exec-wait`:
+
+1. **Find the running binary.** Do not assume it is on `PATH` — the exec
+   shell's environment is often not the service's. Read it out of whatever
+   supervises the process (a systemd unit's `ExecStart`, a launchd plist's
+   `ProgramArguments`, a container entrypoint script), or resolve
+   `/proc/<pid>/exe` on Linux.
+2. **Download the asset matching that host's `os`/`arch`** — `hosts` reports
+   both. Verify it against the release's published checksums, noting that
+   those hash the **archive**, not the binary inside it.
+3. **Never write over the binary in place.** The running process holds that
+   inode. Copy to a temporary name alongside it, `chmod +x`, keep a
+   timestamped backup of the old one, then `mv` over the original. On macOS
+   also clear the quarantine attribute before the `mv`.
+4. **Restart according to what supervises it**, which differs per install:
+   a systemd user unit, a launchd agent (whose label may be suffixed with the
+   workspace slug), or a bare supervision loop in a container entrypoint. Find
+   out first — `systemctl --user`, `launchctl list`, or what `pid 1` actually
+   is.
+
+**Restarting drops the `/link` tunnel**, which is the only way you are
+reaching this machine. Confirm something will bring the process back up
+before you kill it: a `Restart=`/`KeepAlive` directive, or a `while true`
+entrypoint loop. Without that you have locked yourself out. Expect the host
+to reappear in `status` within seconds to a minute.
+
+Finally, **verify the restart actually happened.** A successful copy proves
+nothing — the old process keeps running until it is replaced. Check the new
+process's start time and the executable it is running, then re-run the
+comparison from above.
 
 ## Errors you'll actually see
 
@@ -119,10 +195,13 @@ running; the message names the `job_id` to resume with `wait`.
   `AW_WORKSPACE_HOST_TOKEN`), or `AW_WORKSPACE`/`AW_BACKEND_URL` aren't set.
   Nothing to retry — tell the user to link a host first.
 - `"Not found"` (404) — no active (non-revoked) `RemoteHost` row for this
-  workspace. Same fix: link a host.
+  workspace, or a `--host` id outside this account. Same fix: link a host, or
+  take the id from `hosts`.
 - A 409-shaped error (`CommandUnavailable` upstream) — the host row exists
   but isn't currently connected (no live `/link` WebSocket). Check `status`
   first; this is the same "offline" case, not a bug.
+- `shell` closing immediately with a reason mentioning a container or
+  `podman` — a `--target` the host cannot serve. See `--target` above.
 
 ## Out of scope
 
