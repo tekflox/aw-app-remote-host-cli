@@ -59,3 +59,16 @@ Wire it into an MCP client's config as a stdio server:
 - `remote_host_exec_wait` — block until a job finishes.
 - `remote_host_exec_kill` — kill a running job.
 - `remote_host_list_processes` — list processes started via exec.
+
+File transfer — all streaming and sha256-verified end to end, which is why
+they exist instead of `cat`/`base64` over `remote_host_exec_run`:
+
+- `remote_host_read_file` — read a file's content inline (≤8 MB; returns
+  `encoding: utf-8` for text, `base64` for binary).
+- `remote_host_write_file` — write content to a file, creating parents.
+- `remote_host_upload_file` — stream a local file to the host.
+- `remote_host_download_file` — stream a host file to local disk.
+- `remote_host_list_directory` — list a directory.
+- `remote_host_stat` — exists / size / mode / mtime (+ optional sha256).
+- `remote_host_mkdir` — create a directory and its parents.
+- `remote_host_delete` — delete a file, or a directory with `recursive`.

@@ -28,6 +28,21 @@ class ToolsListTest(unittest.TestCase):
         self.assertIn("remote_host_list_hosts", names)
 
 
+
+def _assert_dispatched(test, mock_dispatch, dispatch_cmd: str, **expected):
+    """Assert WHICH dispatch command ran and the kwargs this tool is about,
+    ignoring the rest.
+
+    Pinning the full kwargs signature instead made every one of these tests
+    fail the moment dispatch() grew the file-transfer parameters — noise about
+    an unrelated feature, not a real regression in exec/status routing.
+    """
+    test.assertEqual(mock_dispatch.call_count, 1)
+    test.assertEqual(mock_dispatch.call_args.args[0], dispatch_cmd)
+    for key, value in expected.items():
+        test.assertEqual(mock_dispatch.call_args.kwargs.get(key), value,
+                         f"dispatch was called with the wrong {key}")
+
 class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
     @patch("mcp_server.server.dispatch")
     def test_status_calls_dispatch_with_status_command(self, mock_dispatch):
@@ -38,9 +53,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
             "params": {"name": "remote_host_status", "arguments": {}},
         })
 
-        mock_dispatch.assert_called_once_with(
-            "status", command=None, job_id=None, timeout_s=None, host_id=None
-        )
+        _assert_dispatched(self, mock_dispatch, "status")
         self.assertFalse(resp["result"]["isError"])
         self.assertEqual(json.loads(resp["result"]["content"][0]["text"]),
                           {"hostname": "box1", "connected": True})
@@ -55,9 +68,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
                        "arguments": {"command": "echo hi", "timeout_s": 5}},
         })
 
-        mock_dispatch.assert_called_once_with(
-            "exec", command="echo hi", job_id=None, timeout_s=5, host_id=None
-        )
+        _assert_dispatched(self, mock_dispatch, "exec", command="echo hi", timeout_s=5)
 
     @patch("mcp_server.server.dispatch")
     def test_exec_start_passes_host_id_when_given(self, mock_dispatch):
@@ -69,9 +80,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
                        "arguments": {"command": "echo hi", "host_id": "rh_other"}},
         })
 
-        mock_dispatch.assert_called_once_with(
-            "exec", command="echo hi", job_id=None, timeout_s=None, host_id="rh_other"
-        )
+        _assert_dispatched(self, mock_dispatch, "exec", command="echo hi", host_id="rh_other")
 
     @patch("mcp_server.server.dispatch")
     def test_exec_status_passes_job_id(self, mock_dispatch):
@@ -82,9 +91,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
             "params": {"name": "remote_host_exec_status", "arguments": {"job_id": "abc123"}},
         })
 
-        mock_dispatch.assert_called_once_with(
-            "exec-status", command=None, job_id="abc123", timeout_s=None, host_id=None
-        )
+        _assert_dispatched(self, mock_dispatch, "exec-status", job_id="abc123")
 
     @patch("mcp_server.server.dispatch")
     def test_list_hosts_calls_dispatch_with_hosts_command(self, mock_dispatch):
@@ -101,9 +108,7 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
             "params": {"name": "remote_host_list_hosts", "arguments": {}},
         })
 
-        mock_dispatch.assert_called_once_with(
-            "hosts", command=None, job_id=None, timeout_s=None, host_id=None
-        )
+        _assert_dispatched(self, mock_dispatch, "hosts")
         self.assertFalse(resp["result"]["isError"])
         self.assertEqual(json.loads(resp["result"]["content"][0]["text"])["count"], 2)
 

@@ -1,13 +1,13 @@
 ---
 name: aw-app-remote-hosts-cli
 description: >-
-  Check status of, run commands on, and manage processes on the remote
-  host(s) linked to this aw-workspace account (via the aw-remote-host BYOD
-  link), using the `aw-workspace-cli remote-hosts` command or this app's MCP
-  tools — including an interactive PTY shell. Use whenever
+  Check status of, run commands on, transfer files to/from, and manage
+  processes on the remote host(s) linked to this aw-workspace account (via the
+  aw-remote-host BYOD link), using the `aw-workspace-cli remote-hosts` command
+  or this app's MCP tools — including an interactive PTY shell. Use whenever
   asked to run a command on "the linked machine" / "my remote host" / "the
-  BYOD box", check whether it's online, manage a job running there, or open
-  an interactive shell on it.
+  BYOD box", check whether it's online, upload/download/read/write a file
+  there, manage a job running there, or open an interactive shell on it.
 ---
 
 # Remote Host CLI
@@ -26,9 +26,12 @@ accidentally address another account's machine.
 2. **MCP tools** — `remote_host_status`, `remote_host_exec_run`,
    `remote_host_exec_start`,
    `remote_host_exec_status`, `remote_host_exec_wait`, `remote_host_exec_kill`,
-   `remote_host_list_processes`, `remote_host_list_hosts`. Prefer these when
-   driving from an agent that already has MCP tool access (no subprocess/shell
-   needed).
+   `remote_host_list_processes`, `remote_host_list_hosts`, plus the file tools
+   `remote_host_read_file`, `remote_host_write_file`,
+   `remote_host_upload_file`, `remote_host_download_file`,
+   `remote_host_list_directory`, `remote_host_stat`, `remote_host_mkdir`,
+   `remote_host_delete`. Prefer these when driving from an agent that already
+   has MCP tool access (no subprocess/shell needed).
 
 Both wrap the exact same aw-backend routes
 (`/api/workspaces/{slug}/remote-host*`) through the same client
@@ -89,6 +92,48 @@ you type sixteen characters.
 Same-account ownership is resolved server-side, so `--host` is only *which
 URL gets called* — a host outside the account 404s rather than being a check
 this client performs.
+
+## File transfer
+
+**Never move a file with `exec-wait "cat ..."` or a `base64` pipeline.** Two
+reasons, both silent: command output is capped at 1 MiB host-side, so a larger
+file is truncated and still reports success; and nothing verifies what
+arrived. The verbs below stream and check sha256 end to end (host → control
+plane → here), and refuse to leave a corrupted file behind.
+
+| Task | CLI | MCP tool |
+|---|---|---|
+| Send a local file | `remote-hosts push <local> <remote> [--mode 755]` | `remote_host_upload_file` |
+| Fetch a file | `remote-hosts pull <remote> [local]` | `remote_host_download_file` |
+| Read content inline | — (use `pull`) | `remote_host_read_file` |
+| Write content inline | — (use `push`) | `remote_host_write_file` |
+| List a directory | `remote-hosts ls <path>` | `remote_host_list_directory` |
+| Stat a path | `remote-hosts stat <path> [--digest]` | `remote_host_stat` |
+| Create a directory | `remote-hosts mkdir <path>` | `remote_host_mkdir` |
+| Delete | `remote-hosts rm <path> [-r]` | `remote_host_delete` |
+
+All of them take `--host <ref>` / `host_id` exactly like the exec verbs.
+
+Things worth knowing before you use them:
+
+- **Paths are resolved host-side like a shell would**: `~`, `~/x`, and bare
+  relative paths all resolve against the *remote user's home*, not against
+  any working directory of yours.
+- **`pull` defaults the local name** to the remote basename in the current
+  directory (scp's default); passing an existing directory puts it inside.
+  Write scratch downloads to `.tmp/` per the workspace convention.
+- **`push` creates missing parent directories** and completely overwrites an
+  existing file (no partial-overwrite tail left behind).
+- **`rm` needs `-r` / `recursive: true`** for a non-empty directory. Without
+  it you get an error, never a surprise wipe.
+- **`remote_host_read_file` is capped at 8 MB** and returns
+  `encoding: "utf-8"` for text, `"base64"` for binary — check the field
+  rather than assuming. For anything bigger use `remote_host_download_file`.
+- **`verified: false` in a result means the digest was NOT checked** (the file
+  was too large for the host to hash, >2 GiB), not that it failed. A failed
+  check is an error, never a result.
+- **`stat` on a missing path returns `exists: false`**, not an error — so
+  "does this exist?" doesn't need exception handling.
 
 ### Exit codes from `exec-wait`
 
@@ -165,6 +210,12 @@ Detect it by comparing, not by trusting: open both targets and run
 `hostname; id -un` in each. Two identical answers mean the target field is
 being ignored.
 
+**The file-transfer verbs need a host binary that has them.** Unlike
+`--target`, this one fails loudly: an older host answers `unknown verb
+"fs_read_chunk"` and the call comes back as an error, not as an empty
+success. If you see that, the host needs updating (below) — falling back to
+a `base64` pipeline is not the fix, it's the thing this replaced.
+
 ### Updating a host binary
 
 `aw-workspace-cli update remote-host` exists, but it is gated on a **user
@@ -227,4 +278,8 @@ comparison from above.
 This app never mints, revokes, or lists bootstrap tokens, and never revokes
 the host link itself — those stay owner-only, human-login operations in the
 aw-workspace console (Settings → Integrations → Remote Host). This app only
-covers the read/exec surface.
+covers the read/exec/file-transfer surface.
+
+There is also **no file-browser UI** — file transfer is a CLI and MCP
+surface only. (The monolith's Remote Agents page never had one either; its
+transfer support was likewise API-and-MCP-only.)

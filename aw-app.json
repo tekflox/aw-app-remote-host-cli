@@ -3,7 +3,7 @@
   "id": "remote-host-cli",
   "name": "Remote Host CLI",
   "version": "0.15.0",
-  "description": "Access the remote hosts linked to your aw-workspace account: contributes an `aw-workspace-cli remote-hosts` command (status/exec/ps against the BYOD host linked via aw-remote-host) and an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
+  "description": "Access the remote hosts linked to your aw-workspace account: contributes an `aw-workspace-cli remote-hosts` command (status/exec/ps plus push/pull file transfer against the BYOD host linked via aw-remote-host) and an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
   "tier": "inprocess",
   "publisher": "TekFlox",
   "resource_estimate": {
@@ -27,7 +27,7 @@
       {
         "id": "aw-app-remote-hosts-cli",
         "path": "skills/aw-app-remote-hosts-cli/SKILL.md",
-        "description": "How to check status of, execute commands on, and manage processes on the remote hosts linked to this aw-workspace account, via `aw-workspace-cli remote-hosts` or this app's MCP server."
+        "description": "How to check status of, execute commands on, transfer files to/from, and manage processes on the remote hosts linked to this aw-workspace account, via `aw-workspace-cli remote-hosts` or this app's MCP server."
       }
     ],
     "mcp": {
@@ -39,7 +39,15 @@
         "remote_host_exec_wait",
         "remote_host_exec_kill",
         "remote_host_list_processes",
-        "remote_host_list_hosts"
+        "remote_host_list_hosts",
+        "remote_host_read_file",
+        "remote_host_write_file",
+        "remote_host_upload_file",
+        "remote_host_download_file",
+        "remote_host_list_directory",
+        "remote_host_stat",
+        "remote_host_mkdir",
+        "remote_host_delete"
       ]
     }
   },

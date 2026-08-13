@@ -22,13 +22,27 @@ against ``RemoteHostClient`` a second time.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import os
 import sys
 
-from .client import NotConfigured, RemoteHostClient, RemoteHostError
+from .client import (
+    MAX_INLINE_READ_BYTES,
+    NotConfigured,
+    RemoteHostClient,
+    RemoteHostError,
+)
 from .hosts import AmbiguousHost, HostNotFound, resolve_host_ref
 
-COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts")
+COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts",
+            "push", "pull", "ls", "stat", "mkdir", "rm", "read", "write")
+
+# `read`/`write` are dispatch-only — deliberately NOT argparse subcommands.
+# They carry file CONTENT through the result dict, which is what an MCP tool
+# wants (an agent has a string, not a file) and exactly what a shell does not:
+# from a terminal the equivalent is `pull`/`push`, which stream to disk
+# instead of routing a whole file through a JSON envelope.
 
 # `shell` is deliberately NOT in COMMANDS/dispatch(): dispatch's contract is
 # "one operation -> one result dict", which the MCP server relies on. An
@@ -43,7 +57,10 @@ EXIT_TIMEOUT = 124
 
 def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str | None = None,
              job_id: str | None = None, timeout_s: float | None = None,
-             host_id: str | None = None) -> dict:
+             host_id: str | None = None, path: str | None = None,
+             local_path: str | None = None, recursive: bool = False,
+             mode: str | None = None, digest: bool = False,
+             content: str | None = None, encoding: str | None = None) -> dict:
     """Run one remote-host operation and return its raw result dict.
 
     ``host_id`` (optional) targets a SPECIFIC host anywhere in the caller's
@@ -102,6 +119,62 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
         return client.list_processes(host_id=host_id)
     if cmd == "hosts":
         return client.list_account_hosts()
+    if cmd == "push":
+        if not local_path or not path:
+            raise ValueError("push requires 'local_path' and 'path'")
+        return client.upload(local_path, path, mode=mode, host_id=host_id, timeout=timeout_s)
+    if cmd == "pull":
+        if not path:
+            raise ValueError("pull requires 'path'")
+        # A bare `pull /var/log/syslog` means "bring it here under its own
+        # name" — the same default scp has, and the one that makes the common
+        # case a single argument.
+        target = local_path or os.path.basename(path.replace("\\", "/")) or "download"
+        if os.path.isdir(target):
+            target = os.path.join(target, os.path.basename(path.replace("\\", "/")))
+        return client.download(path, target, host_id=host_id, timeout=timeout_s)
+    if cmd == "ls":
+        if not path:
+            raise ValueError("ls requires 'path'")
+        return client.fs_list(path, host_id=host_id)
+    if cmd == "stat":
+        if not path:
+            raise ValueError("stat requires 'path'")
+        return client.fs_stat(path, digest=digest, host_id=host_id)
+    if cmd == "mkdir":
+        if not path:
+            raise ValueError("mkdir requires 'path'")
+        return client.fs_mkdir(path, host_id=host_id)
+    if cmd == "rm":
+        if not path:
+            raise ValueError("rm requires 'path'")
+        return client.fs_delete(path, recursive=recursive, host_id=host_id)
+    if cmd == "read":
+        if not path:
+            raise ValueError("read requires 'path'")
+        payload = client.download_bytes(path, host_id=host_id, timeout=timeout_s,
+                                        max_bytes=MAX_INLINE_READ_BYTES)
+        # Text where possible, base64 otherwise — an agent asking for a config
+        # file wants to read it, and a binary that can't be decoded must not be
+        # mangled into replacement characters and passed off as its contents.
+        try:
+            return {"path": path, "bytes": len(payload), "encoding": "utf-8",
+                    "content": payload.decode("utf-8")}
+        except UnicodeDecodeError:
+            return {"path": path, "bytes": len(payload), "encoding": "base64",
+                    "content": base64.b64encode(payload).decode()}
+    if cmd == "write":
+        if not path:
+            raise ValueError("write requires 'path'")
+        if content is None:
+            raise ValueError("write requires 'content'")
+        if encoding == "base64":
+            payload = base64.b64decode(content)
+        elif encoding in (None, "utf-8"):
+            payload = content.encode("utf-8")
+        else:
+            raise ValueError(f"unsupported encoding {encoding!r} (expected 'utf-8' or 'base64')")
+        return client.upload_bytes(payload, path, mode=mode, host_id=host_id, timeout=timeout_s)
     raise ValueError(f"unknown command: {cmd!r} (expected one of {COMMANDS})")
 
 
@@ -196,6 +269,54 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
 
     sub.add_parser("hosts", help="List every remote host linked across this account's workspaces.")
 
+    # File transfer. Both directions verify sha256 end to end and stream
+    # rather than buffering, so these are the right tool for a real file —
+    # `exec "base64 ..."` is neither.
+    p_push = sub.add_parser(
+        "push", help="Upload a local file to a remote host.",
+        description="Stream a local file to PATH on the remote host, creating "
+                    "missing parent directories, and verify its sha256 on arrival.",
+    )
+    p_push.add_argument("local_path", metavar="LOCAL", help="File on this machine.")
+    p_push.add_argument("path", metavar="REMOTE", help="Destination path on the remote host.")
+    p_push.add_argument("--mode", default=None, help="Octal permissions to set, e.g. 755.")
+    p_push.add_argument("--timeout", type=float, default=None, dest="timeout_s",
+                         help="Transfer timeout in seconds (default: 600).")
+    p_push.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_pull = sub.add_parser(
+        "pull", help="Download a file from a remote host.",
+        description="Stream REMOTE off the host to LOCAL (default: same basename "
+                    "in the current directory), verifying sha256 before the file "
+                    "is moved into place.",
+    )
+    p_pull.add_argument("path", metavar="REMOTE", help="File on the remote host.")
+    p_pull.add_argument("local_path", metavar="LOCAL", nargs="?", default=None,
+                         help="Destination on this machine (a directory is allowed).")
+    p_pull.add_argument("--timeout", type=float, default=None, dest="timeout_s",
+                         help="Transfer timeout in seconds (default: 600).")
+    p_pull.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_ls = sub.add_parser("ls", help="List a directory on a remote host.")
+    p_ls.add_argument("path")
+    p_ls.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_stat = sub.add_parser("stat", help="Stat a path on a remote host.")
+    p_stat.add_argument("path")
+    p_stat.add_argument("--digest", action="store_true",
+                         help="Also compute the file's sha256 on the host.")
+    p_stat.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_mkdir = sub.add_parser("mkdir", help="Create a directory (and parents) on a remote host.")
+    p_mkdir.add_argument("path")
+    p_mkdir.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_rm = sub.add_parser("rm", help="Delete a file or directory on a remote host.")
+    p_rm.add_argument("path")
+    p_rm.add_argument("-r", "--recursive", action="store_true",
+                       help="Required to delete a non-empty directory.")
+    p_rm.add_argument("--host", default=None, dest="host_id", help=host_help)
+
     p_shell = sub.add_parser(
         "shell",
         help="Open an interactive shell (PTY) on a linked host.",
@@ -240,11 +361,22 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
             job_id=getattr(args, "job_id", None),
             timeout_s=getattr(args, "timeout_s", None),
             host_id=getattr(args, "host_id", None),
+            path=getattr(args, "path", None),
+            local_path=getattr(args, "local_path", None),
+            recursive=getattr(args, "recursive", False),
+            mode=getattr(args, "mode", None),
+            digest=getattr(args, "digest", False),
         )
         if cmd == "exec-wait" and not getattr(args, "as_json", False):
             return _render_run(result, prog)
         _print(result)
     except (NotConfigured, HostNotFound, AmbiguousHost) as e:
+        print(f"{prog}: {e}", file=sys.stderr)
+        return 2
+    except OSError as e:
+        # A local-filesystem failure (missing file to push, unwritable pull
+        # destination) is the user's problem to fix, not a remote error —
+        # surfacing it as one would send them debugging the wrong machine.
         print(f"{prog}: {e}", file=sys.stderr)
         return 2
     except RemoteHostError as e:

@@ -153,6 +153,138 @@ _TOOLS = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    # ---- file transfer -------------------------------------------------
+    # Prefer these over remote_host_exec_run with cat/base64: they stream
+    # (so file size doesn't blow up a command's output cap) and they verify
+    # sha256 end to end, which a shell pipeline silently doesn't.
+    {
+        "name": "remote_host_read_file",
+        "description": (
+            "Read a file from a remote host and return its CONTENT inline. Use "
+            "this to inspect a config/log/source file. Text is returned as-is "
+            "(encoding: utf-8); binary comes back base64-encoded. Bounded at "
+            "8 MB — for anything larger use remote_host_download_file, which "
+            "streams to a local path instead."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path on the remote host. '~' and paths relative to the host user's home are supported."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname) from remote_host_list_hosts."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "remote_host_write_file",
+        "description": (
+            "Write CONTENT to a file on a remote host, creating missing parent "
+            "directories. Overwrites an existing file completely. Verifies "
+            "sha256 after the write."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Destination path on the remote host."},
+                "content": {"type": "string", "description": "File content."},
+                "encoding": {
+                    "type": "string", "enum": ["utf-8", "base64"],
+                    "description": "How 'content' is encoded (default: utf-8). Use base64 for binary.",
+                },
+                "mode": {"type": "string", "description": "Optional octal permissions, e.g. '755'."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "remote_host_upload_file",
+        "description": (
+            "Upload a file from THIS workspace's filesystem to a remote host, "
+            "streaming it (no size limit beyond patience) and verifying sha256 "
+            "on arrival."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "local_path": {"type": "string", "description": "Path of the file on this workspace's filesystem."},
+                "path": {"type": "string", "description": "Destination path on the remote host."},
+                "mode": {"type": "string", "description": "Optional octal permissions, e.g. '755'."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["local_path", "path"],
+        },
+    },
+    {
+        "name": "remote_host_download_file",
+        "description": (
+            "Download a file from a remote host to THIS workspace's filesystem, "
+            "streaming it and verifying sha256 before the file is moved into "
+            "place. Use .tmp/ for scratch destinations."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the file on the remote host."},
+                "local_path": {"type": "string", "description": "Destination on this workspace's filesystem (default: same basename in the current directory)."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "remote_host_list_directory",
+        "description": "List a directory on a remote host — name, path, is_dir, size, mode and modified_at per entry.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "remote_host_stat",
+        "description": (
+            "Check whether a path exists on a remote host and what it is. A "
+            "missing path returns exists:false rather than an error."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "digest": {"type": "boolean", "description": "Also compute the file's sha256 on the host."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "remote_host_mkdir",
+        "description": "Create a directory (and any missing parents) on a remote host. Succeeds if it already exists.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "remote_host_delete",
+        "description": "Delete a file or directory on a remote host. A non-empty directory needs recursive:true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "recursive": {"type": "boolean", "description": "Required to delete a non-empty directory."},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["path"],
+        },
+    },
 ]
 
 
@@ -165,6 +297,14 @@ _TOOL_TO_CMD = {
     "remote_host_exec_kill": "kill",
     "remote_host_list_processes": "ps",
     "remote_host_list_hosts": "hosts",
+    "remote_host_read_file": "read",
+    "remote_host_write_file": "write",
+    "remote_host_upload_file": "push",
+    "remote_host_download_file": "pull",
+    "remote_host_list_directory": "ls",
+    "remote_host_stat": "stat",
+    "remote_host_mkdir": "mkdir",
+    "remote_host_delete": "rm",
 }
 
 
@@ -176,8 +316,20 @@ def _call(name: str, args: dict) -> dict:
             job_id=args.get("job_id"),
             timeout_s=args.get("timeout_s"),
             host_id=args.get("host_id"),
+            path=args.get("path"),
+            local_path=args.get("local_path"),
+            recursive=bool(args.get("recursive")),
+            mode=args.get("mode"),
+            digest=bool(args.get("digest")),
+            content=args.get("content"),
+            encoding=args.get("encoding"),
         )
         return {"ok": True, "data": data}
+    except OSError as e:
+        # Local-filesystem failure (no such local_path to upload, unwritable
+        # download target) — reported as its own thing so the agent doesn't go
+        # looking for the problem on the remote machine.
+        return {"ok": False, "error": f"local filesystem: {e}"}
     except NotConfigured as e:
         return {"ok": False, "error": str(e)}
     except RemoteHostError as e:
