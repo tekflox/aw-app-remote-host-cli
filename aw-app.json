@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "id": "remote-host-cli",
   "name": "Remote Host CLI",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Access the remote hosts linked to your aw-workspace account: contributes an `aw-workspace-cli remote-hosts` command (status/exec/ps plus push/pull file transfer against the BYOD host linked via aw-remote-host) and an MCP server so an agent can do the same, both scoped to only this account's own linked hosts.",
   "tier": "inprocess",
   "publisher": "TekFlox",
