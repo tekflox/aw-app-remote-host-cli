@@ -6,9 +6,9 @@ This app contributes no backend routes/frontend. Its CLI surface is
 ``commands/remote_hosts.py`` — an aw-workspace-cli *contributed command*
 (``aw-workspace-cli remote-hosts``), auto-discovered from the installed app
 dir with no plugin involvement at all. Beyond that it ships a skill and a
-standalone MCP server (mcp_server/, not loaded by this plugin — it's a
-separate process an agent CLI or the aw-mcp-gateway spawns on its own, see
-mcp_server/README.md).
+standalone MCP server (mcp_server/) that activate() registers with
+aw-mcp-gateway by writing this app's own mcp.json (see mcp_config.py) — the
+gateway spawns it as a stdio subprocess on its own, see mcp_server/README.md.
 
 Until v0.8.0 the CLI was instead a standalone ``aw-remote-hosts`` binary,
 installed by activate() through the gated ctx.commands facade (capability
@@ -32,8 +32,12 @@ os.environ-and-.env publish pattern for AW_WORKSPACE_API_KEY.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from pathlib import Path
+
+from . import mcp_config
 
 log = logging.getLogger("aw_apps.remote-host-cli")
 
@@ -108,6 +112,16 @@ def _publish_env_vars() -> list[str]:
     return list(values)
 
 
+def _provided_tool_count(package_dir: str) -> int | None:
+    """Count of contributes.mcp.provides in this app's own manifest — for the
+    activate() log line only, so it can't drift from aw-app.json's list."""
+    try:
+        manifest = json.loads((Path(package_dir) / "aw-app.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return len(manifest.get("contributes", {}).get("mcp", {}).get("provides", []))
+
+
 class RemoteHostCliAppPlugin:
     async def activate(self, ctx) -> None:
         try:
@@ -125,6 +139,17 @@ class RemoteHostCliAppPlugin:
         except Exception:
             published = []
             log.warning("aw-app-remote-host-cli: publishing env vars to .env failed", exc_info=True)
+
+        try:
+            doc = mcp_config.write_mcp_json(ctx.package_dir)
+        except OSError:
+            log.warning("aw-app-remote-host-cli: writing mcp.json failed", exc_info=True)
+        else:
+            log.info(
+                "aw-app-remote-host-cli: registered stdio MCP server %s (%s tools)",
+                sorted(doc["mcpServers"]),
+                _provided_tool_count(ctx.package_dir),
+            )
 
         log.info("aw-app-remote-host-cli activated: published %s", published)
 

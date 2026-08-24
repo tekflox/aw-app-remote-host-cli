@@ -72,8 +72,12 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   how to use the CLI or the MCP tools below.
 
 - A **standalone MCP server** (`mcp_server/`, see its own
-  [README](mcp_server/README.md)) exposing the same operations as MCP
-  tools: `remote_host_status`, `remote_host_exec_run` (one-shot run+wait),
+  [README](mcp_server/README.md)), registered with aw-mcp-gateway as a
+  stdio upstream by `activate()` itself (`remote_host_cli_app/mcp_config.py`
+  writes this app's own `mcp.json` — see `contributes.mcp.provides` in
+  `aw-app.json` for why that manifest field alone doesn't do it). Exposes
+  the same operations as MCP tools: `remote_host_status`,
+  `remote_host_exec_run` (one-shot run+wait),
   `remote_host_exec_start`, `remote_host_exec_status`, `remote_host_exec_wait`,
   `remote_host_exec_kill`, `remote_host_list_processes`,
   `remote_host_list_hosts`, plus the file tools `remote_host_read_file`,
@@ -109,16 +113,21 @@ this app depended on.
   single source of truth shared by the command and the MCP server.
 - `remote_host_cli_app/plugin.py` — `RemoteHostCliAppPlugin` entrypoint;
   `activate(ctx)` publishes the backend env vars into
-  `<AW_WORKSPACE_HOME>/.env` and removes the pre-v0.8.0 shim if present.
-- `mcp_server/` — the standalone MCP server (separate process, run via
-  `python -m mcp_server.server`).
+  `<AW_WORKSPACE_HOME>/.env`, removes the pre-v0.8.0 shim if present, and
+  writes this app's own `mcp.json` (via `mcp_config.py`).
+- `remote_host_cli_app/mcp_config.py` — builds and idempotently writes
+  `<package_dir>/mcp.json`, the file aw-mcp-gateway's app-scan reads to
+  spawn `mcp_server/server.py` as a stdio upstream.
+- `mcp_server/` — the standalone MCP server (separate process; gateway
+  spawns it via `python -m mcp_server.server` with cwd = this app's own
+  installed dir).
 - `skills/aw-app-remote-hosts-cli/SKILL.md` — usage guide for an agent.
 - `docs/backend-auth.md` — the auth pattern this app uses (aw-backend, not
   the local workspace API — different from most `aw-app-*` apps).
 - `tests/` — `validate_manifest.py` (manifest/schema), `test_command.py`
   (the contributed command), `test_client.py` (httpx mocked), `test_cli.py`
-  (client mocked), `test_plugin.py`, `test_mcp_server.py`. All run in CI on
-  every push, gating the release.
+  (client mocked), `test_plugin.py`, `test_mcp_config.py`,
+  `test_mcp_server.py`. All run in CI on every push, gating the release.
 
 ## Not covered by this app
 
