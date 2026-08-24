@@ -26,7 +26,24 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   aw-workspace-cli remote-hosts stat <path> [--digest]
   aw-workspace-cli remote-hosts mkdir <path>
   aw-workspace-cli remote-hosts rm <path> [-r]
+
+  aw-workspace-cli remote-hosts firewall list   [--host <id>] [--json]
+  aw-workspace-cli remote-hosts firewall add    --port 8080|8080-8090 [--proto tcp|udp]
+                                                [--from CIDR] [--action allow|deny]
+                                                [--priority N] [--comment "..."] [--host <id>]
+  aw-workspace-cli remote-hosts firewall remove <rule_id> [--host <id>]
+  aw-workspace-cli remote-hosts firewall lockdown on|off [--host <id>]
+  aw-workspace-cli remote-hosts firewall status [--host <id>]
   ```
+
+  `firewall list` prints the rule table plus a footer line reporting whether
+  the host is actually enforcing what's saved (`in_sync`, or `PENDING: <why>`
+  when it isn't — a rule can be saved and not yet applied if the host is
+  offline or lacks the privilege to touch its own firewall). `--json` prints
+  the full envelope instead. `firewall status` forces a re-push of the
+  current saved state to the host without waiting for its next reconnect.
+  `--port` on `add` accepts a single port or a range; if the host sits behind
+  DNAT/port-forwarding it must be the POST-DNAT port.
 
   `exec-wait` (alias `run`) is the one you usually want: it starts the
   command AND blocks for it, prints stdout/stderr raw, and exits with the
@@ -62,7 +79,10 @@ own account (see [`docs/backend-auth.md`](docs/backend-auth.md)).
   `remote_host_list_hosts`, plus the file tools `remote_host_read_file`,
   `remote_host_write_file`, `remote_host_upload_file`,
   `remote_host_download_file`, `remote_host_list_directory`,
-  `remote_host_stat`, `remote_host_mkdir`, `remote_host_delete`.
+  `remote_host_stat`, `remote_host_mkdir`, `remote_host_delete`, and the
+  firewall tools `remote_host_firewall_list`, `remote_host_firewall_add_rule`,
+  `remote_host_firewall_remove_rule`, `remote_host_firewall_set_lockdown`,
+  `remote_host_firewall_status`.
 
 ## How it's scoped to your account
 

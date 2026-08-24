@@ -196,6 +196,48 @@ class RemoteHostClient:
         """``GET .../remote-host/processes`` — count + processes[]."""
         return self._request("GET", "/processes", host_id=host_id)
 
+    # ---- firewall (aw-backend's firewall_rules/firewall_host_state routes) --
+    #
+    # Every verb here returns the SAME envelope shape: {backend, privileged,
+    # firewall_capable, firewall_capability_reason, lockdown, revision,
+    # applied_revision, in_sync, last_error, rules[]}, plus {applied,
+    # pending_reason, rule_id} on the write verbs — see aw-backend's
+    # host_link.py firewall routes. A rule always persists even when the push
+    # to the host fails (offline, unprivileged, unknown verb); in_sync tells
+    # you whether what's saved is actually what the host is enforcing.
+
+    def firewall_get(self, host_id: str | None = None) -> dict:
+        """``GET .../remote-host/firewall``."""
+        return self._request("GET", "/firewall", host_id=host_id)
+
+    def firewall_add_rule(self, port_from: int, port_to: int, protocol: str = "tcp",
+                          source_cidr: str = "0.0.0.0/0", action: str = "allow",
+                          priority: int = 100, comment: str = "",
+                          host_id: str | None = None) -> dict:
+        """``POST .../remote-host/firewall/rules``."""
+        body = {
+            "protocol": protocol, "action": action,
+            "port_from": port_from, "port_to": port_to,
+            "source_cidr": source_cidr, "priority": priority, "comment": comment,
+        }
+        return self._request("POST", "/firewall/rules", json_body=body, host_id=host_id)
+
+    def firewall_remove_rule(self, rule_id: str, host_id: str | None = None) -> dict:
+        """``DELETE .../remote-host/firewall/rules/{rule_id}`` — soft delete."""
+        return self._request("DELETE", f"/firewall/rules/{rule_id}", host_id=host_id)
+
+    def firewall_set_lockdown(self, enabled: bool, host_id: str | None = None) -> dict:
+        """``PATCH .../remote-host/firewall`` — body ``{"lockdown": enabled}``."""
+        return self._request("PATCH", "/firewall", json_body={"lockdown": enabled}, host_id=host_id)
+
+    def firewall_apply(self, host_id: str | None = None) -> dict:
+        """``POST .../remote-host/firewall/apply`` — forces a re-push of the
+        current saved state to the host WITHOUT bumping revision (unlike the
+        three write verbs above, which always bump). Use this to nudge a host
+        that just came back online, or just got the privilege it was missing,
+        without waiting for its next /link reconnect."""
+        return self._request("POST", "/firewall/apply", json_body={}, host_id=host_id)
+
     # ---- file transfer (aw-backend's fs_* routes -> the host's fs_* verbs) --
     #
     # sha256 is verified END TO END here, not just trusted: the host hashes

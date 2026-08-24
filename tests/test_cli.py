@@ -4,6 +4,7 @@ Run: python -m pytest tests/test_cli.py -q
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import unittest
@@ -220,6 +221,224 @@ class CliDispatchTest(unittest.TestCase):
         mock_client_cls.return_value.status.side_effect = RemoteHostError("Not found")
 
         code = cli.main(["status"])
+
+        self.assertEqual(code, 1)
+
+
+class FirewallPortRangeParsingTest(unittest.TestCase):
+    """--port accepts a single port or a range; anything else is a clean
+    argparse error (exit 2), not a traceback."""
+
+    def test_single_port(self):
+        self.assertEqual(cli._port_range("8080"), (8080, 8080))
+
+    def test_range(self):
+        self.assertEqual(cli._port_range("8080-8090"), (8080, 8090))
+
+    def test_non_numeric_is_rejected(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            cli._port_range("not-a-port")
+
+    def test_out_of_range_is_rejected(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            cli._port_range("70000")
+
+    def test_reversed_range_is_rejected(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            cli._port_range("9090-9080")
+
+    def test_invalid_port_at_the_cli_exits_2_not_a_traceback(self):
+        """argparse's own type= validation raises SystemExit(2) straight out
+        of parse_args — same as any other bad flag, not a dispatch() error."""
+        with patch("sys.stderr"), self.assertRaises(SystemExit) as ctx:
+            cli.main(["firewall", "add", "--port", "nope"])
+        self.assertEqual(ctx.exception.code, 2)
+
+
+class FirewallAddTest(unittest.TestCase):
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_add_parses_a_port_range_and_applies_defaults(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_add_rule.return_value = {"rule_id": "r1", "applied": True}
+
+        code = cli.main(["firewall", "add", "--port", "8080-8090"])
+
+        self.assertEqual(code, 0)
+        c.firewall_add_rule.assert_called_once_with(
+            8080, 8090, protocol="tcp", source_cidr="0.0.0.0/0", action="allow",
+            priority=100, comment="", host_id=None,
+        )
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_from_defaults_to_0000_when_omitted(self, mock_client_cls):
+        """--from has no explicit default check elsewhere; pin it here since
+        the plan calls it out as the one CIDR default that must hold."""
+        c = mock_client_cls.return_value
+        c.firewall_add_rule.return_value = {"rule_id": "r1", "applied": True}
+
+        cli.main(["firewall", "add", "--port", "22"])
+
+        self.assertEqual(c.firewall_add_rule.call_args.kwargs["source_cidr"], "0.0.0.0/0")
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_explicit_flags_override_every_default(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_add_rule.return_value = {"rule_id": "r1", "applied": True}
+
+        cli.main([
+            "firewall", "add", "--port", "53", "--proto", "udp", "--from", "10.0.0.0/8",
+            "--action", "deny", "--priority", "10", "--comment", "dns", "--host", "aaaa1111bbbb2222",
+        ])
+
+        c.firewall_add_rule.assert_called_once_with(
+            53, 53, protocol="udp", source_cidr="10.0.0.0/8", action="deny",
+            priority=10, comment="dns", host_id="aaaa1111bbbb2222",
+        )
+
+
+class FirewallListRenderingTest(unittest.TestCase):
+    """The drift footer is the central requirement of this card: `list` must
+    never show a saved rule as if it were live when it isn't."""
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_footer_reports_in_sync_when_applied_matches_revision(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_get.return_value = {
+            "backend": "nft", "privileged": True, "firewall_capable": True,
+            "firewall_capability_reason": None, "lockdown": False,
+            "revision": 7, "applied_revision": 7, "in_sync": True, "last_error": "",
+            "rules": [],
+        }
+
+        with patch("sys.stdout") as out:
+            code = cli.main(["firewall", "list"])
+
+        self.assertEqual(code, 0)
+        printed = "".join(c.args[0] for c in out.write.call_args_list if c.args)
+        self.assertIn("revision=7 applied=7 (in sync)", printed)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_footer_changes_when_applied_revision_lags_behind(self, mock_client_cls):
+        """A rule saved but not yet pushed (host offline) must not read the
+        same as one that's actually enforced."""
+        c = mock_client_cls.return_value
+        c.firewall_get.return_value = {
+            "backend": "nft", "privileged": True, "firewall_capable": True,
+            "firewall_capability_reason": None, "lockdown": False,
+            "revision": 7, "applied_revision": 6, "in_sync": False, "last_error": "host offline",
+            "rules": [],
+        }
+
+        with patch("sys.stdout") as out:
+            cli.main(["firewall", "list"])
+
+        printed = "".join(c.args[0] for c in out.write.call_args_list if c.args)
+        self.assertIn("revision=7 applied=6", printed)
+        self.assertIn("PENDING: host offline", printed)
+        self.assertNotIn("in sync", printed)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_incapable_host_shows_the_reason_instead_of_a_revision_line(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_get.return_value = {
+            "backend": "", "privileged": False, "firewall_capable": False,
+            "firewall_capability_reason": "not yet probed — host has not reported firewall capability",
+            "lockdown": False, "revision": 0, "applied_revision": 0, "in_sync": True, "last_error": "",
+            "rules": [],
+        }
+
+        with patch("sys.stdout") as out:
+            cli.main(["firewall", "list"])
+
+        printed = "".join(c.args[0] for c in out.write.call_args_list if c.args)
+        self.assertIn("cannot apply firewall rules", printed)
+        self.assertIn("not yet probed", printed)
+        self.assertNotIn("revision=", printed)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_json_flag_emits_the_raw_envelope_with_no_footer_formatting(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        envelope = {
+            "backend": "nft", "privileged": True, "firewall_capable": True,
+            "firewall_capability_reason": None, "lockdown": False,
+            "revision": 3, "applied_revision": 3, "in_sync": True, "last_error": "",
+            "rules": [{"id": "r1", "action": "allow", "protocol": "tcp", "port_from": 22,
+                       "port_to": 22, "source_cidr": "0.0.0.0/0", "priority": 100, "enabled": True}],
+        }
+        c.firewall_get.return_value = envelope
+
+        with patch("sys.stdout") as out:
+            code = cli.main(["firewall", "list", "--json"])
+
+        self.assertEqual(code, 0)
+        printed = "".join(c.args[0] for c in out.write.call_args_list if c.args)
+        self.assertEqual(json.loads(printed), envelope)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_table_renders_one_row_per_rule(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_get.return_value = {
+            "backend": "nft", "privileged": True, "firewall_capable": True,
+            "firewall_capability_reason": None, "lockdown": False,
+            "revision": 1, "applied_revision": 1, "in_sync": True, "last_error": "",
+            "rules": [
+                {"id": "r1", "action": "allow", "protocol": "tcp", "port_from": 8080,
+                 "port_to": 8080, "source_cidr": "0.0.0.0/0", "priority": 100, "enabled": True},
+                {"id": "r2", "action": "deny", "protocol": "udp", "port_from": 8080,
+                 "port_to": 8090, "source_cidr": "10.0.0.0/8", "priority": 50, "enabled": False},
+            ],
+        }
+
+        with patch("sys.stdout") as out:
+            cli.main(["firewall", "list"])
+
+        printed = "".join(c.args[0] for c in out.write.call_args_list if c.args)
+        self.assertIn("r1", printed)
+        self.assertIn("8080", printed)
+        self.assertIn("8080-8090", printed)
+        self.assertIn("enabled", printed)
+        self.assertIn("disabled", printed)
+
+
+class FirewallOtherVerbsTest(unittest.TestCase):
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_remove_dispatches_with_the_rule_id(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_remove_rule.return_value = {"applied": True}
+
+        code = cli.main(["firewall", "remove", "rule123"])
+
+        self.assertEqual(code, 0)
+        c.firewall_remove_rule.assert_called_once_with("rule123", host_id=None)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_lockdown_on_and_off_map_to_booleans(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_set_lockdown.return_value = {"lockdown": True}
+
+        cli.main(["firewall", "lockdown", "on"])
+        c.firewall_set_lockdown.assert_called_once_with(True, host_id=None)
+
+        c.firewall_set_lockdown.reset_mock()
+        c.firewall_set_lockdown.return_value = {"lockdown": False}
+        cli.main(["firewall", "lockdown", "off"])
+        c.firewall_set_lockdown.assert_called_once_with(False, host_id=None)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_status_forces_a_reapply(self, mock_client_cls):
+        c = mock_client_cls.return_value
+        c.firewall_apply.return_value = {"applied": True, "in_sync": True}
+
+        code = cli.main(["firewall", "status"])
+
+        self.assertEqual(code, 0)
+        c.firewall_apply.assert_called_once_with(host_id=None)
+
+    @patch("remote_host_cli_app.cli.RemoteHostClient")
+    def test_remote_host_error_exits_1(self, mock_client_cls):
+        mock_client_cls.return_value.firewall_get.side_effect = RemoteHostError("Not found")
+
+        code = cli.main(["firewall", "list"])
 
         self.assertEqual(code, 1)
 

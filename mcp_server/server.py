@@ -285,6 +285,90 @@ _TOOLS = [
             "required": ["path"],
         },
     },
+    # ---- firewall --------------------------------------------------------
+    # A rule always persists even when the push to the host fails (offline,
+    # unprivileged, unknown verb) — firewall_capable/in_sync/last_error on
+    # every response say whether it's actually enforced, not just saved.
+    {
+        "name": "remote_host_firewall_list",
+        "description": (
+            "List inbound firewall rules on a remote host plus its sync state: "
+            "backend (nft/iptables/unsupported), whether it's even capable of "
+            "applying rules (firewall_capable/firewall_capability_reason), "
+            "lockdown, and whether the saved rules match what the host is "
+            "actually enforcing (in_sync, revision vs applied_revision)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+        },
+    },
+    {
+        "name": "remote_host_firewall_add_rule",
+        "description": (
+            "Add an inbound firewall rule on a remote host. If this host sits "
+            "behind DNAT/port-forwarding, port_from/port_to must be the "
+            "POST-DNAT port — filtering the pre-DNAT port never matches and "
+            "traffic silently disappears with no RST. The rule is saved even "
+            "if the host is offline or can't apply it yet (see the response's "
+            "applied/pending_reason)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "port_from": {"type": "integer", "description": "1-65535. Same as port_to for a single port."},
+                "port_to": {"type": "integer", "description": "1-65535, >= port_from."},
+                "protocol": {"type": "string", "enum": ["tcp", "udp"], "description": "Default: tcp."},
+                "source_cidr": {"type": "string", "description": "Default: 0.0.0.0/0."},
+                "action": {"type": "string", "enum": ["allow", "deny"], "description": "Default: allow."},
+                "priority": {"type": "integer", "description": "Lower matches first. Default: 100."},
+                "comment": {"type": "string"},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["port_from", "port_to"],
+        },
+    },
+    {
+        "name": "remote_host_firewall_remove_rule",
+        "description": "Remove a firewall rule from a remote host by its id (from remote_host_firewall_list).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rule_id": {"type": "string"},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["rule_id"],
+        },
+    },
+    {
+        "name": "remote_host_firewall_set_lockdown",
+        "description": "Toggle lockdown on a remote host — when on, all inbound traffic is denied except explicit allow rules.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "lockdown": {"type": "boolean"},
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+            "required": ["lockdown"],
+        },
+    },
+    {
+        "name": "remote_host_firewall_status",
+        "description": (
+            "Force a re-push of the current saved firewall rules/lockdown state "
+            "to a remote host and report whether it applied — use this to nudge "
+            "a host that just came back online or just got the privilege it was "
+            "missing, instead of waiting for its next reconnect."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host_id": {"type": "string", "description": "Optional — a specific host (id, workspace slug or hostname)."},
+            },
+        },
+    },
 ]
 
 
@@ -305,6 +389,11 @@ _TOOL_TO_CMD = {
     "remote_host_stat": "stat",
     "remote_host_mkdir": "mkdir",
     "remote_host_delete": "rm",
+    "remote_host_firewall_list": "firewall-list",
+    "remote_host_firewall_add_rule": "firewall-add",
+    "remote_host_firewall_remove_rule": "firewall-remove",
+    "remote_host_firewall_set_lockdown": "firewall-lockdown",
+    "remote_host_firewall_status": "firewall-status",
 }
 
 
@@ -323,6 +412,15 @@ def _call(name: str, args: dict) -> dict:
             digest=bool(args.get("digest")),
             content=args.get("content"),
             encoding=args.get("encoding"),
+            port_from=args.get("port_from"),
+            port_to=args.get("port_to"),
+            protocol=args.get("protocol"),
+            source_cidr=args.get("source_cidr"),
+            action=args.get("action"),
+            priority=args.get("priority"),
+            comment=args.get("comment"),
+            rule_id=args.get("rule_id"),
+            lockdown=args.get("lockdown"),
         )
         return {"ok": True, "data": data}
     except OSError as e:

@@ -145,5 +145,75 @@ class ToolsCallDelegatesToDispatchTest(unittest.TestCase):
         self.assertIn("Unknown tool", resp["result"]["content"][0]["text"])
 
 
+class FirewallToolsDelegateToDispatchTest(unittest.TestCase):
+    """Same "thin adapter over dispatch()" contract as every other tool —
+    these route to the firewall-* dispatch commands cli.py's own `firewall`
+    subcommand group uses, no separate MCP-side logic."""
+
+    @patch("mcp_server.server.dispatch")
+    def test_list_calls_firewall_list(self, mock_dispatch):
+        mock_dispatch.return_value = {"backend": "nft", "rules": []}
+
+        resp = server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_firewall_list", "arguments": {"host_id": "rh1"}},
+        })
+
+        _assert_dispatched(self, mock_dispatch, "firewall-list", host_id="rh1")
+        self.assertFalse(resp["result"]["isError"])
+
+    @patch("mcp_server.server.dispatch")
+    def test_add_rule_passes_every_field(self, mock_dispatch):
+        mock_dispatch.return_value = {"rule_id": "r1", "applied": True}
+
+        server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_firewall_add_rule", "arguments": {
+                "port_from": 8080, "port_to": 8090, "protocol": "udp",
+                "source_cidr": "10.0.0.0/8", "action": "deny", "priority": 10,
+                "comment": "dns", "host_id": "rh1",
+            }},
+        })
+
+        _assert_dispatched(
+            self, mock_dispatch, "firewall-add",
+            port_from=8080, port_to=8090, protocol="udp", source_cidr="10.0.0.0/8",
+            action="deny", priority=10, comment="dns", host_id="rh1",
+        )
+
+    @patch("mcp_server.server.dispatch")
+    def test_remove_rule_passes_rule_id(self, mock_dispatch):
+        mock_dispatch.return_value = {"applied": True}
+
+        server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_firewall_remove_rule", "arguments": {"rule_id": "r1"}},
+        })
+
+        _assert_dispatched(self, mock_dispatch, "firewall-remove", rule_id="r1")
+
+    @patch("mcp_server.server.dispatch")
+    def test_set_lockdown_passes_the_boolean(self, mock_dispatch):
+        mock_dispatch.return_value = {"lockdown": True}
+
+        server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_firewall_set_lockdown", "arguments": {"lockdown": True}},
+        })
+
+        _assert_dispatched(self, mock_dispatch, "firewall-lockdown", lockdown=True)
+
+    @patch("mcp_server.server.dispatch")
+    def test_status_calls_firewall_status(self, mock_dispatch):
+        mock_dispatch.return_value = {"applied": True, "in_sync": True}
+
+        server.handle_request({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "remote_host_firewall_status", "arguments": {}},
+        })
+
+        _assert_dispatched(self, mock_dispatch, "firewall-status")
+
+
 if __name__ == "__main__":
     unittest.main()

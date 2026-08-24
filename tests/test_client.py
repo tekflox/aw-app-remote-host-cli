@@ -219,5 +219,102 @@ class RequestShapeTest(unittest.TestCase):
         self.assertEqual(kwargs["headers"], {"Authorization": "Bearer awlk_test_secret"})
 
 
+class FirewallRequestShapeTest(unittest.TestCase):
+    """RemoteHostClient's 5 firewall_* verbs — same _request/_base pattern as
+    everything above, mirroring aw-backend's host_link.py firewall routes."""
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_get_hits_the_singular_path(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"backend": "nft"})
+        client = _configured_client()
+
+        result = client.firewall_get()
+
+        self.assertEqual(result["backend"], "nft")
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("GET", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/firewall"))
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_get_with_host_id_hits_the_plural_sibling_path(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"backend": "nft"})
+        client = _configured_client()
+
+        client.firewall_get(host_id="rh_other")
+
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("GET", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/firewall"))
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_add_rule_posts_the_full_body_with_defaults_applied(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"rule_id": "r1", "applied": True})
+        client = _configured_client()
+
+        client.firewall_add_rule(8080, 8090)
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/firewall/rules"))
+        self.assertEqual(kwargs["json"], {
+            "protocol": "tcp", "action": "allow", "port_from": 8080, "port_to": 8090,
+            "source_cidr": "0.0.0.0/0", "priority": 100, "comment": "",
+        })
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_add_rule_honors_explicit_values(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"rule_id": "r1", "applied": True})
+        client = _configured_client()
+
+        client.firewall_add_rule(53, 53, protocol="udp", source_cidr="10.0.0.0/8",
+                                 action="deny", priority=10, comment="dns", host_id="rh_other")
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/firewall/rules"))
+        self.assertEqual(kwargs["json"], {
+            "protocol": "udp", "action": "deny", "port_from": 53, "port_to": 53,
+            "source_cidr": "10.0.0.0/8", "priority": 10, "comment": "dns",
+        })
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_remove_rule_deletes_by_id(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"applied": True})
+        client = _configured_client()
+
+        client.firewall_remove_rule("rule123", host_id="rh_other")
+
+        args, _ = mock_request.call_args
+        self.assertEqual(args, ("DELETE",
+                                "http://127.0.0.1:9025/api/workspaces/acme/remote-hosts/rh_other/firewall/rules/rule123"))
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_set_lockdown_patches_the_flag(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"lockdown": True})
+        client = _configured_client()
+
+        client.firewall_set_lockdown(True)
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args, ("PATCH", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/firewall"))
+        self.assertEqual(kwargs["json"], {"lockdown": True})
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_apply_posts_with_no_revision_bump_in_the_body(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=200, json=lambda: {"applied": True})
+        client = _configured_client()
+
+        client.firewall_apply()
+
+        args, kwargs = mock_request.call_args
+        self.assertEqual(args, ("POST", "http://127.0.0.1:9025/api/workspaces/acme/remote-host/firewall/apply"))
+        self.assertEqual(kwargs["json"], {})
+
+    @patch("remote_host_cli_app.client.httpx.request")
+    def test_firewall_error_response_raises_with_parsed_message(self, mock_request):
+        mock_request.return_value = MagicMock(status_code=422, json=lambda: {"error": "invalid CIDR"})
+        client = _configured_client()
+
+        with self.assertRaises(RemoteHostError) as ctx:
+            client.firewall_add_rule(8080, 8080, source_cidr="not-a-cidr")
+        self.assertIn("invalid CIDR", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

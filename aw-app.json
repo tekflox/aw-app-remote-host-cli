@@ -47,7 +47,12 @@
         "remote_host_list_directory",
         "remote_host_stat",
         "remote_host_mkdir",
-        "remote_host_delete"
+        "remote_host_delete",
+        "remote_host_firewall_list",
+        "remote_host_firewall_add_rule",
+        "remote_host_firewall_remove_rule",
+        "remote_host_firewall_set_lockdown",
+        "remote_host_firewall_status"
       ]
     }
   },

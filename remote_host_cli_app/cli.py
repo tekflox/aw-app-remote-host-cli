@@ -36,7 +36,9 @@ from .client import (
 from .hosts import AmbiguousHost, HostNotFound, resolve_host_ref
 
 COMMANDS = ("status", "exec", "exec-wait", "exec-status", "wait", "kill", "ps", "hosts",
-            "push", "pull", "ls", "stat", "mkdir", "rm", "read", "write")
+            "push", "pull", "ls", "stat", "mkdir", "rm", "read", "write",
+            "firewall-list", "firewall-add", "firewall-remove", "firewall-lockdown",
+            "firewall-status")
 
 # `read`/`write` are dispatch-only — deliberately NOT argparse subcommands.
 # They carry file CONTENT through the result dict, which is what an MCP tool
@@ -60,7 +62,12 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
              host_id: str | None = None, path: str | None = None,
              local_path: str | None = None, recursive: bool = False,
              mode: str | None = None, digest: bool = False,
-             content: str | None = None, encoding: str | None = None) -> dict:
+             content: str | None = None, encoding: str | None = None,
+             port_from: int | None = None, port_to: int | None = None,
+             protocol: str | None = None, source_cidr: str | None = None,
+             action: str | None = None, priority: int | None = None,
+             comment: str | None = None, rule_id: str | None = None,
+             lockdown: bool | None = None) -> dict:
     """Run one remote-host operation and return its raw result dict.
 
     ``host_id`` (optional) targets a SPECIFIC host anywhere in the caller's
@@ -175,11 +182,128 @@ def dispatch(cmd: str, *, client: RemoteHostClient | None = None, command: str |
         else:
             raise ValueError(f"unsupported encoding {encoding!r} (expected 'utf-8' or 'base64')")
         return client.upload_bytes(payload, path, mode=mode, host_id=host_id, timeout=timeout_s)
+    if cmd == "firewall-list":
+        return client.firewall_get(host_id=host_id)
+    if cmd == "firewall-add":
+        if port_from is None or port_to is None:
+            raise ValueError("firewall-add requires 'port_from' and 'port_to'")
+        return client.firewall_add_rule(
+            port_from, port_to, protocol=protocol or "tcp", source_cidr=source_cidr or "0.0.0.0/0",
+            action=action or "allow", priority=100 if priority is None else priority,
+            comment=comment or "", host_id=host_id,
+        )
+    if cmd == "firewall-remove":
+        if not rule_id:
+            raise ValueError("firewall-remove requires 'rule_id'")
+        return client.firewall_remove_rule(rule_id, host_id=host_id)
+    if cmd == "firewall-lockdown":
+        if lockdown is None:
+            raise ValueError("firewall-lockdown requires 'lockdown'")
+        return client.firewall_set_lockdown(lockdown, host_id=host_id)
+    if cmd == "firewall-status":
+        return client.firewall_apply(host_id=host_id)
     raise ValueError(f"unknown command: {cmd!r} (expected one of {COMMANDS})")
 
 
 def _print(data: dict) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def _port_range(raw: str) -> tuple[int, int]:
+    """argparse ``type=`` for ``--port``: a single port ("8080") or a range
+    ("8080-8090") -> (port_from, port_to). Raising ArgumentTypeError here
+    (not ValueError) is what makes argparse print a clean usage+error and
+    exit 2 on its own, instead of this bubbling up as a traceback."""
+    lo_s, sep, hi_s = raw.partition("-")
+    hi_s = hi_s if sep else lo_s
+    try:
+        lo, hi = int(lo_s), int(hi_s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{raw!r} is not a port or a port range like 8080-8090") from None
+    if not (1 <= lo <= 65535) or not (1 <= hi <= 65535):
+        raise argparse.ArgumentTypeError(f"{raw!r}: ports must be in 1-65535")
+    if lo > hi:
+        raise argparse.ArgumentTypeError(f"{raw!r}: range must be low-high")
+    return lo, hi
+
+
+def _firewall_footer(data: dict) -> str:
+    """The line under a rules table (or `firewall status`'s whole output)
+    that says whether what's saved is what the host is actually enforcing.
+    A rule can be saved-but-not-applied (host offline, or lacking privilege
+    to touch its own firewall) — printing the table alone would tell the
+    user a rule is live when it might not be."""
+    backend = data.get("backend") or "unknown"
+    if not data.get("firewall_capable"):
+        reason = data.get("firewall_capability_reason") or "capability not reported"
+        return f"backend={backend} (this host cannot apply firewall rules — {reason})"
+    lockdown = "on" if data.get("lockdown") else "off"
+    revision = data.get("revision", 0)
+    applied = data.get("applied_revision", 0)
+    if data.get("in_sync"):
+        state = "in sync"
+    else:
+        state = f"PENDING: {data.get('last_error') or 'not yet applied'}"
+    return f"backend={backend} lockdown={lockdown} revision={revision} applied={applied} ({state})"
+
+
+def _print_firewall_table(data: dict) -> None:
+    rules = data.get("rules") or []
+    headers = ("ID", "ACTION", "PROTO", "PORT", "FROM", "PRIO", "STATE")
+    rows = []
+    for r in rules:
+        port_from, port_to = r.get("port_from"), r.get("port_to")
+        port = str(port_from) if port_from == port_to else f"{port_from}-{port_to}"
+        rows.append((
+            str(r.get("id", "")), str(r.get("action", "")), str(r.get("protocol", "")),
+            port, str(r.get("source_cidr", "")), str(r.get("priority", "")),
+            "enabled" if r.get("enabled", True) else "disabled",
+        ))
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+    print("  ".join(h.ljust(w) for h, w in zip(headers, widths)))
+    if not rows:
+        print("(no rules configured)")
+    for row in rows:
+        print("  ".join(c.ljust(w) for c, w in zip(row, widths)))
+    print(_firewall_footer(data))
+
+
+def _run_firewall(args: argparse.Namespace, prog: str) -> int:
+    try:
+        if args.firewall_cmd == "list":
+            data = dispatch("firewall-list", host_id=args.host_id)
+            if args.as_json:
+                _print(data)
+            else:
+                _print_firewall_table(data)
+            return 0
+        if args.firewall_cmd == "add":
+            port_from, port_to = args.port_range
+            data = dispatch(
+                "firewall-add", host_id=args.host_id, port_from=port_from, port_to=port_to,
+                protocol=args.protocol, source_cidr=args.source_cidr, action=args.action,
+                priority=args.priority, comment=args.comment,
+            )
+        elif args.firewall_cmd == "remove":
+            data = dispatch("firewall-remove", host_id=args.host_id, rule_id=args.rule_id)
+        elif args.firewall_cmd == "lockdown":
+            data = dispatch("firewall-lockdown", host_id=args.host_id, lockdown=(args.state == "on"))
+        elif args.firewall_cmd == "status":
+            data = dispatch("firewall-status", host_id=args.host_id)
+        else:
+            raise AssertionError(f"unhandled firewall subcommand: {args.firewall_cmd!r}")
+        _print(data)
+        return 0
+    except (NotConfigured, HostNotFound, AmbiguousHost) as e:
+        print(f"{prog}: {e}", file=sys.stderr)
+        return 2
+    except RemoteHostError as e:
+        print(f"{prog}: {e}", file=sys.stderr)
+        return 1
 
 
 def _render_run(result: dict, prog: str) -> int:
@@ -317,6 +441,40 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
                        help="Required to delete a non-empty directory.")
     p_rm.add_argument("--host", default=None, dest="host_id", help=host_help)
 
+    p_fw = sub.add_parser("firewall", help="Manage inbound firewall rules on a remote host.")
+    fw_sub = p_fw.add_subparsers(dest="firewall_cmd", required=True)
+
+    p_fw_list = fw_sub.add_parser("list", help="List firewall rules and their sync status.")
+    p_fw_list.add_argument("--host", default=None, dest="host_id", help=host_help)
+    p_fw_list.add_argument("--json", action="store_true", dest="as_json",
+                            help="Print the full GET envelope as JSON instead of a formatted table.")
+
+    p_fw_add = fw_sub.add_parser("add", help="Add an inbound firewall rule.")
+    p_fw_add.add_argument(
+        "--port", required=True, type=_port_range, dest="port_range",
+        help="Port or port range, e.g. 8080 or 8080-8090. If this host sits behind "
+             "DNAT/port-forwarding, this must be the POST-DNAT port — filtering the "
+             "pre-DNAT port never matches and traffic silently disappears with no RST.")
+    p_fw_add.add_argument("--proto", default="tcp", choices=("tcp", "udp"), dest="protocol")
+    p_fw_add.add_argument("--from", default="0.0.0.0/0", dest="source_cidr", metavar="CIDR")
+    p_fw_add.add_argument("--action", default="allow", choices=("allow", "deny"))
+    p_fw_add.add_argument("--priority", type=int, default=100)
+    p_fw_add.add_argument("--comment", default="")
+    p_fw_add.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_fw_remove = fw_sub.add_parser("remove", help="Remove a firewall rule by id.")
+    p_fw_remove.add_argument("rule_id")
+    p_fw_remove.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_fw_lockdown = fw_sub.add_parser(
+        "lockdown", help="Toggle lockdown (deny all inbound except explicit allow rules).")
+    p_fw_lockdown.add_argument("state", choices=("on", "off"))
+    p_fw_lockdown.add_argument("--host", default=None, dest="host_id", help=host_help)
+
+    p_fw_status = fw_sub.add_parser(
+        "status", help="Force a re-push of the current firewall state to the host and report it.")
+    p_fw_status.add_argument("--host", default=None, dest="host_id", help=host_help)
+
     p_shell = sub.add_parser(
         "shell",
         help="Open an interactive shell (PTY) on a linked host.",
@@ -333,6 +491,9 @@ def main(argv: list[str] | None = None, prog: str = "aw-workspace-cli remote-hos
                                "'workspace' is that host's workspace container.")
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "firewall":
+        return _run_firewall(args, prog)
 
     if args.cmd == "shell":
         from .shell import ShellUnavailable, run_shell
