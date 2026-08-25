@@ -8,13 +8,16 @@ Run: python -m pytest tests/test_mcp_config.py -q
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from remote_host_cli_app.client import ENV_VARS  # noqa: E402
 from remote_host_cli_app.mcp_config import SERVER_NAME, build_mcp_servers, write_mcp_json  # noqa: E402
 
 
@@ -38,6 +41,29 @@ class BuildMcpServersTest(unittest.TestCase):
     def test_server_name_is_stable(self):
         self.assertEqual(SERVER_NAME, "aw-app-remote-host-cli")
         self.assertEqual(build_mcp_servers(), build_mcp_servers())
+
+    def test_bakes_the_three_credentials_into_the_upstream_env(self):
+        """aw-mcp-gateway spawns this upstream in a container that has
+        neither these vars nor <AW_WORKSPACE_HOME>/.env — client.py's own
+        env/file fallbacks can't reach it, so the values have to travel in
+        the upstream's own mcp.json env block instead (see mcp_config.py's
+        module docstring)."""
+        creds = {"AW_BACKEND_URL": "http://127.0.0.1:9025",
+                  "AW_WORKSPACE": "test-workspace",
+                  "AW_WORKSPACE_HOST_TOKEN": "awlk_testtoken"}
+        with patch.dict(os.environ, creds, clear=False):
+            env = build_mcp_servers()[SERVER_NAME]["env"]
+        for key, value in creds.items():
+            self.assertEqual(env[key], value)
+        self.assertEqual(env["PYTHONUNBUFFERED"], "1")
+
+    def test_omits_a_credential_that_is_unset_rather_than_writing_empty(self):
+        with patch.dict(os.environ, {k: "" for k in ENV_VARS}, clear=False):
+            for k in ENV_VARS:
+                os.environ.pop(k, None)
+            env = build_mcp_servers()[SERVER_NAME]["env"]
+        for key in ENV_VARS:
+            self.assertNotIn(key, env)
 
 
 class WriteMcpJsonTest(unittest.TestCase):
