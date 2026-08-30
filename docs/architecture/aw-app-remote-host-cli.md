@@ -3,7 +3,7 @@ repo: architecture
 path: docs/architecture/aw-app-remote-host-cli.md
 source: generated
 edited: false
-checksum: sha256:6cc0d42478eddb9afb304759285e2681508ea52796f422e7acd8c39cb326d504
+checksum: sha256:adf919101e098efb90b314678005fb31d52780ba9849d808adcfff32ae5fab75
 ---
 # Remote Host CLI
 
@@ -25,6 +25,11 @@ Access the remote hosts linked to your aw-workspace account: contributes an `aw-
 - `remote_host_exec_start`
 - `remote_host_exec_status`
 - `remote_host_exec_wait`
+- `remote_host_firewall_add_rule`
+- `remote_host_firewall_list`
+- `remote_host_firewall_remove_rule`
+- `remote_host_firewall_set_lockdown`
+- `remote_host_firewall_status`
 - `remote_host_list_directory`
 - `remote_host_list_hosts`
 - `remote_host_list_processes`
