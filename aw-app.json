@@ -30,6 +30,9 @@
         "description": "How to check status of, execute commands on, transfer files to/from, and manage processes on the remote hosts linked to this aw-workspace account, via `aw-workspace-cli remote-hosts` or this app's MCP server."
       }
     ],
+    "knowledge": {
+      "path": "docs"
+    },
     "mcp": {
       "provides": [
         "remote_host_status",
