@@ -1,0 +1,66 @@
+name: Test
+
+# Coverage + lint gate for this repo's own PRs, per
+# docs/standards/pipeline-testing.md. The shared tekflox/aw-marketplace
+# release workflow (release.yml -> app-release.yml) runs the test suite on
+# push to master, but has no PR-time trigger and no coverage/lint step yet
+# (Phase 3 of the standard's rollout, a separate repo) — so until then this
+# repo's own gate lives here, same pattern as aw-app-template/aw-app-kb.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch: {}
+
+# ubuntu-latest, NOT [self-hosted, aw-baremetal]: this repo is PUBLIC and
+# `pull_request` has no fork restriction here — a fork-authored PR's own
+# tests/ would otherwise execute directly on the self-hosted baremetal
+# pool. GitHub-hosted minutes are free on a public repo, so there is no
+# cost reason to prefer self-hosted (same reasoning as this fleet's
+# aw-app-diff-tool test.yml).
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        # Same base set app-release.yml already installs for this repo's
+        # release-time test run (tekflox/aw-marketplace/.github/workflows/
+        # app-release.yml:194-200) — this repo has no requirements.txt of
+        # its own (tier: inprocess, deps come from aw-workspace core).
+        run: |
+          pip install -q pytest jsonschema fastapi httpx uvicorn
+          pip install -q -r requirements-dev.txt
+
+      - name: Test suite + coverage gate
+        # fail_under is read from pyproject.toml's [tool.coverage.report] —
+        # a one-way ratchet, see docs/standards/pipeline-testing.md §4.2.
+        # --source=remote_host_cli_app only, matching the §4.1/§9 baseline
+        # methodology (the sibling mcp_server package is exercised by the
+        # same tests but is not part of this coverage source, same as the
+        # original 2026-09-09 measurement).
+        run: |
+          pytest --cov=remote_host_cli_app --cov-report=term-missing \
+            --cov-report=html --cov-report=xml tests/ -q
+
+      - name: Upload coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: |
+            htmlcov/
+            coverage.xml
+          retention-days: 30
+
+      - name: Lint (pylint E-class, blocking)
+        # --errors-only per §5.2, minus E0401/E1101 — same disable set as
+        # aw-app-template/aw-app-kb. Measured 2026-11-06: clean (10/10)
+        # across both packages.
+        run: pylint remote_host_cli_app mcp_server --disable=all --enable=E --disable=E0401,E1101
